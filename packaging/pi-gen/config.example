@@ -34,4 +34,4 @@ KEYBOARD_LAYOUT="English (UK)"
 #   - a released version from PyPI (recommended once published):
 export CABLEPROBE_SRC="cableprobe==0.1.0"
 #   - or straight from git at a tag:
-# export CABLEPROBE_SRC="cableprobe @ git+https://<host>/<org>/cableprobe@v0.1.0"
+# export CABLEPROBE_SRC="cableprobe @ git+https://github.com/rosscooney/CableProbe@v0.1.0"

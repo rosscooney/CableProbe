@@ -10,9 +10,7 @@ Preferred options:
 
 1. **GitHub private vulnerability reporting** — use the "Report a vulnerability"
    button under the repository's *Security* tab (GitHub → Security → Advisories).
-2. **Email** — `<SECURITY-CONTACT-TO-BE-CONFIGURED>`
-   (placeholder: replace with a monitored security contact address for
-   Stable State Consulting Ltd before publishing the repository).
+2. **Email** — `contributors@cableprobe.com`
 
 Please include:
 

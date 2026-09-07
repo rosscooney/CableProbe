@@ -1,7 +1,7 @@
 # Contributing to CableProbe
 
 Thanks for your interest in improving CableProbe. Contributions are welcome via
-pull requests on GitHub.
+pull requests at <https://github.com/rosscooney/CableProbe>.
 
 ## Licensing of contributions
 

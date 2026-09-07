@@ -36,7 +36,7 @@ are not already present (`journalctl`/`dmesg` ship with the base OS).
 ```bash
 sudo ./scripts/install.sh
 # once published:
-# curl -fsSL https://<host>/install.sh | sudo bash
+# curl -fsSL https://raw.githubusercontent.com/rosscooney/CableProbe/main/scripts/install.sh | sudo bash
 ```
 
 Creates `/opt/cableprobe/venv`, installs the package there, links
@@ -74,5 +74,6 @@ work, regardless of those tools' licences.
 - [ ] `python -m build` → `twine check dist/*` passes
 - [ ] `pip install dist/*.whl` in a clean venv; `cableprobe --version` works
 - [ ] tag `v0.1.0`; publish to PyPI as `cableprobe`
-- [ ] update `CABLEPROBE_SRC` / install one-liner host in docs
+- [ ] confirm `CABLEPROBE_SRC` / install one-liner point at
+      `github.com/rosscooney/CableProbe` (and PyPI once published)
 - [ ] `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`, `SECURITY.md` present in sdist

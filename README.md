@@ -62,7 +62,7 @@ sudo apt install usbutils util-linux        # CLI tools CableProbe shells out to
 sudo ./scripts/install.sh                    # sudo scripts/uninstall.sh to remove
 
 # 3. from a checkout, for development
-git clone <this repo> cableprobe && cd cableprobe
+git clone https://github.com/rosscooney/CableProbe cableprobe && cd cableprobe
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 ```
@@ -183,7 +183,8 @@ The analysis, rules and report layers are pure and fully unit-tested without
 hardware. Probe parsers (`lsusb`, `lsblk`, `/proc/bus/input/devices`, kernel
 lines) are tested against captured sample output.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute, and
+The source lives at <https://github.com/rosscooney/CableProbe>. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute, and
 [SECURITY.md](SECURITY.md) for how to report vulnerabilities privately.
 
 ## Scope / non-goals for v0.1

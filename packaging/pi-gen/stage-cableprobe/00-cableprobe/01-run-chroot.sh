@@ -7,7 +7,7 @@
 
 # Where to install CableProbe from. Override in your pi-gen `config`:
 #   export CABLEPROBE_SRC="cableprobe==0.1.0"
-#   export CABLEPROBE_SRC="cableprobe @ git+https://<host>/<org>/cableprobe@v0.1.0"
+#   export CABLEPROBE_SRC="cableprobe @ git+https://github.com/rosscooney/CableProbe@v0.1.0"
 CABLEPROBE_SRC="${CABLEPROBE_SRC:-cableprobe}"
 
 python3 -m venv /opt/cableprobe/venv

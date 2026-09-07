@@ -13,7 +13,7 @@
 #   sudo CABLEPROBE_SOURCE=<pip-spec> ./scripts/install.sh
 #
 #   # once published, the one-liner form is:
-#   #   curl -fsSL https://<host>/install.sh | sudo bash
+#   #   curl -fsSL https://raw.githubusercontent.com/rosscooney/CableProbe/main/scripts/install.sh | sudo bash
 #
 # Environment:
 #   CABLEPROBE_SOURCE   pip install target. Default: the repo this script lives
