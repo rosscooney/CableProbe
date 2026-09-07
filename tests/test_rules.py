@@ -7,8 +7,14 @@ from cableprobe.models import (
     KIND_BLOCK_DEVICE,
     KIND_INPUT_DEVICE,
     KIND_KERNEL_MESSAGE,
+    KIND_KERNEL_MODULE,
+    KIND_MOUNT,
+    KIND_NETWORK_CONFIG,
     KIND_NETWORK_INTERFACE,
+    KIND_PCI_DEVICE,
     KIND_USB_DEVICE,
+    KIND_USB_INTERFACE,
+    KIND_USB_PD,
     Delta,
 )
 from cableprobe.rules import RuleSet
@@ -101,6 +107,84 @@ def test_block_device_usb_transport():
     rs = RuleSet.default()
     findings = rs.evaluate([_delta(KIND_BLOCK_DEVICE, "block:sda", transport="usb")])
     assert any(f.rule_id == "mass-storage-appeared-on-connect" for f in findings)
+
+
+def test_hid_interface_descriptor_rule_is_high():
+    rs = RuleSet.default()
+    delta = _delta(
+        KIND_USB_INTERFACE, "usbif:dead:beef:x:00", interface_class_name="hid"
+    )
+    findings = rs.evaluate([delta])
+    hit = next(f for f in findings if f.rule_id == "hid-interface-appeared-on-connect")
+    assert hit.severity == "high"
+
+
+def test_vendor_specific_interface_rule():
+    rs = RuleSet.default()
+    delta = _delta(
+        KIND_USB_INTERFACE, "usbif:1:2:x:01", interface_class_name="vendor-specific"
+    )
+    findings = rs.evaluate([delta])
+    assert any(
+        f.rule_id == "vendor-specific-interface-appeared-on-connect" for f in findings
+    )
+
+
+def test_descriptor_morphing_modified_rule():
+    rs = RuleSet.default()
+    delta = _delta(
+        KIND_USB_INTERFACE,
+        "usbif:1:2:x:00",
+        change="modified",
+        device_num_interfaces="3",
+    )
+    findings = rs.evaluate([delta])
+    assert any(f.rule_id == "device-interface-set-changed" for f in findings)
+
+
+def test_typec_data_role_change_is_high():
+    rs = RuleSet.default()
+    delta = _delta(
+        KIND_USB_PD, "typec:port0", change="modified", data_role="host"
+    )
+    findings = rs.evaluate([delta])
+    hit = next(f for f in findings if f.rule_id == "typec-data-role-changed-on-connect")
+    assert hit.severity == "high"
+
+
+def test_pci_device_appeared_is_critical():
+    rs = RuleSet.default()
+    findings = rs.evaluate([_delta(KIND_PCI_DEVICE, "pci:0000:00:1c.4")])
+    hit = next(f for f in findings if f.rule_id == "pci-device-appeared-on-connect")
+    assert hit.severity == "critical"
+
+
+def test_default_route_change_is_critical():
+    rs = RuleSet.default()
+    delta = _delta(
+        KIND_NETWORK_CONFIG,
+        "route:default",
+        change="modified",
+        label="default route via 169.254.0.1 dev usb0",
+    )
+    findings = rs.evaluate([delta])
+    hit = next(f for f in findings if f.rule_id == "default-route-changed-on-connect")
+    assert hit.severity == "critical"
+
+
+def test_gadget_module_and_generic_module_rules():
+    rs = RuleSet.default()
+    gadget = _delta(KIND_KERNEL_MODULE, "kmod:rndis_host", label="kernel module rndis_host")
+    ids = {f.rule_id for f in rs.evaluate([gadget])}
+    assert "gadget-driver-module-loaded-on-connect" in ids
+    assert "kernel-module-loaded-on-connect" in ids
+
+
+def test_removable_mount_rule_is_high():
+    rs = RuleSet.default()
+    findings = rs.evaluate([_delta(KIND_MOUNT, "mount:/media/pi/USB")])
+    hit = next(f for f in findings if f.rule_id == "removable-media-mounted-on-connect")
+    assert hit.severity == "high"
 
 
 def test_custom_ruleset_from_yaml(tmp_path):

@@ -28,13 +28,21 @@ PHASE_ORDER = (PHASE_BASELINE, PHASE_TEST, PHASE_POST_TEST)
 # --- observation kinds ----------------------------------------------------
 
 KIND_USB_DEVICE = "usb_device"
+KIND_USB_INTERFACE = "usb_interface"
+KIND_USB_PD = "usb_pd"
+KIND_USB_TOPOLOGY = "usb_topology"
 KIND_BLOCK_DEVICE = "block_device"
 KIND_NETWORK_INTERFACE = "network_interface"
+KIND_NETWORK_CONFIG = "network_config"
+KIND_LISTENING_SOCKET = "listening_socket"
 KIND_INPUT_DEVICE = "input_device"
 KIND_HID_DEVICE = "hid_device"
 KIND_SERIAL_DEVICE = "serial_device"
 KIND_AUDIO_DEVICE = "audio_device"
 KIND_VIDEO_DEVICE = "video_device"
+KIND_PCI_DEVICE = "pci_device"
+KIND_KERNEL_MODULE = "kernel_module"
+KIND_MOUNT = "mount"
 KIND_PROCESS = "process"
 KIND_KERNEL_MESSAGE = "kernel_message"
 

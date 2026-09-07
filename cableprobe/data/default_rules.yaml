@@ -7,9 +7,12 @@
 #
 # Match vocabulary:
 #   change:                appeared | disappeared | modified   (string or list)
-#   kind:                  usb_device | block_device | network_interface |
-#                          input_device | hid_device | serial_device |
-#                          audio_device | video_device | process | kernel_message
+#   kind:                  usb_device | usb_interface | usb_pd | usb_topology |
+#                          block_device | mount | network_interface |
+#                          network_config | listening_socket | input_device |
+#                          hid_device | serial_device | audio_device |
+#                          video_device | pci_device | kernel_module |
+#                          process | kernel_message
 #   first_seen_phase:      baseline | test | post_test
 #   reverted_after_disconnect: true | false
 #   transient:             true | false   (seen only via a udev event)
@@ -27,6 +30,7 @@ version: 1
 # kernel_message, which have their own normal churn).
 device_kinds: &device_kinds
   - usb_device
+  - usb_interface
   - block_device
   - network_interface
   - input_device
@@ -34,6 +38,7 @@ device_kinds: &device_kinds
   - serial_device
   - audio_device
   - video_device
+  - pci_device
 
 rules:
   - id: hid-keyboard-appeared-on-connect
@@ -251,3 +256,239 @@ rules:
       change: appeared
       first_seen_phase: test
       kind: process
+
+  # --- descriptor-level (usb_descriptors probe) --------------------------
+
+  - id: hid-interface-appeared-on-connect
+    title: A USB HID interface appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      An interface of class HID enumerating on connect is the descriptor-level
+      view of a keystroke/pointer injection implant, and is caught even when
+      udev does not label a matching input device.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_interface
+      attributes:
+        all:
+          - { key: interface_class_name, equals: hid }
+
+  - id: storage-interface-appeared-on-connect
+    title: A USB mass-storage interface appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      A mass-storage class interface on connect means the cable can present
+      readable/writable media to the host.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_interface
+      attributes:
+        all:
+          - { key: interface_class_name, equals: mass-storage }
+
+  - id: vendor-specific-interface-appeared-on-connect
+    title: A vendor-specific USB interface appeared while the unknown cable was connected
+    severity: medium
+    rationale: >
+      Vendor-specific (class 0xff) interfaces carry proprietary protocols and
+      are a common way for an implant to expose a covert control channel that
+      no standard driver will flag.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_interface
+      attributes:
+        all:
+          - { key: interface_class_name, equals: vendor-specific }
+
+  - id: device-interface-set-changed
+    title: The interface set of an already-present USB device changed on connect
+    severity: high
+    rationale: >
+      A device that stays enumerated but whose advertised interface classes or
+      interface count change during the test phase is exhibiting descriptor
+      morphing - presenting a benign face until a trigger.
+    match:
+      change: modified
+      first_seen_phase: test
+      kind: usb_interface
+      attributes:
+        any:
+          - { key: device_interface_classes, exists: true }
+          - { key: device_num_interfaces, exists: true }
+
+  # --- USB-C / Power Delivery (usbc_pd probe) --------------------------
+
+  - id: typec-partner-attached-on-connect
+    title: A USB-C partner attached while the unknown cable was connected
+    severity: low
+    rationale: >
+      Expected when the device under test is itself USB-C, but recorded so the
+      partner's advertised identity and alt modes are in the report.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_pd
+      label_regex: "partner"
+
+  - id: typec-data-role-changed-on-connect
+    title: The USB-C data role changed while the unknown cable was connected
+    severity: high
+    rationale: >
+      A cable presented as charge-only that negotiates or swaps into a data
+      role (host/device) is asserting a capability it should not need.
+    match:
+      change: modified
+      first_seen_phase: test
+      kind: usb_pd
+      attributes:
+        all:
+          - { key: data_role, exists: true }
+
+  - id: typec-alt-mode-entered-on-connect
+    title: A USB-C alternate mode (DisplayPort / Thunderbolt / ...) was entered on connect
+    severity: high
+    rationale: >
+      Alt-mode entry hands the partner a high-bandwidth or tunnelled transport
+      (DisplayPort, Thunderbolt/USB4). Unexpected for a plain data cable and a
+      potential DMA / display-capture surface.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: usb_pd
+      attributes:
+        any:
+          - { key: alt_modes, exists: true }
+          - { key: port_alt_modes, exists: true }
+
+  # --- USB topology (usb_topology probe) --------------------------
+
+  - id: usb-hub-appeared-in-topology
+    title: A USB hub appeared in the bus topology while the cable was connected
+    severity: medium
+    rationale: >
+      A hub that was not present at baseline is how multiple hidden interfaces
+      are stacked behind one connector. Corroborates usb-hub-appeared-on-connect
+      from a different data source.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_topology
+      label_regex: "hub"
+
+  - id: usb-topology-grew-on-connect
+    title: The USB device tree grew while the unknown cable was connected
+    severity: low
+    rationale: >
+      The summary count of USB devices / hubs / tree depth increased during the
+      test phase. Expected for the device under test; useful as corroboration.
+    match:
+      change: modified
+      first_seen_phase: test
+      kind: usb_topology
+      attributes:
+        any:
+          - { key: device_count, exists: true }
+          - { key: external_hub_count, exists: true }
+
+  # --- host state (kernel_modules / mounts / pci probes) --------------------------
+
+  - id: gadget-driver-module-loaded-on-connect
+    title: A network / storage / serial gadget kernel module loaded on connect
+    severity: high
+    rationale: >
+      Auto-loading of rndis_host, cdc_ncm, cdc_ether, usbnet, usb_storage, uas
+      or usbserial in correlation with the cable indicates the matching gadget
+      class enumerated.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: kernel_module
+      label_regex: "rndis|cdc_ncm|cdc_ether|cdc_acm|usbnet|r8152|ax88|usb_storage|\\buas\\b|usbserial|ftdi_sio|cp210x|ch341|pl2303"
+
+  - id: kernel-module-loaded-on-connect
+    title: A kernel module loaded while the unknown cable was connected
+    severity: low
+    rationale: >
+      Any module that loads on connect is worth noting even if it is not a
+      known gadget driver - it is still code entering the kernel because of the
+      cable.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: kernel_module
+
+  - id: removable-media-mounted-on-connect
+    title: A filesystem was mounted while the unknown cable was connected
+    severity: high
+    rationale: >
+      An automounted partition means content on the cable's storage was made
+      readable (and possibly executable via autorun-style helpers) to the host.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: mount
+
+  - id: mount-persisted-after-disconnect
+    title: A filesystem mounted on connect was still mounted after disconnect
+    severity: high
+    rationale: >
+      A mount that survives cable removal means the host is still reading from
+      storage that is no longer physically attached as expected, or that a
+      helper re-attached it. Investigate before trusting the host.
+    match:
+      change: appeared
+      first_seen_phase: test
+      reverted_after_disconnect: false
+      kind: mount
+
+  - id: pci-device-appeared-on-connect
+    title: A PCI / Thunderbolt device appeared while the unknown cable was connected
+    severity: critical
+    rationale: >
+      A USB4 / Thunderbolt cable that tunnels PCIe exposes the host to direct
+      memory access. A new pci_device correlated with the cable is a serious
+      finding.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: pci_device
+
+  # --- network behaviour (routing / listeners probes) --------------------------
+
+  - id: default-route-changed-on-connect
+    title: The default route changed while the unknown cable was connected
+    severity: critical
+    rationale: >
+      If the cable's network gadget became the default route, all off-link
+      traffic from the host now transits hardware inside the cable.
+    match:
+      change: modified
+      first_seen_phase: test
+      kind: network_config
+      label_regex: "default route"
+
+  - id: dns-resolvers-changed-on-connect
+    title: The DNS resolvers changed while the unknown cable was connected
+    severity: critical
+    rationale: >
+      A cable that rewrites /etc/resolv.conf controls name resolution for the
+      host and can transparently redirect traffic.
+    match:
+      change: modified
+      first_seen_phase: test
+      kind: network_config
+      label_regex: "DNS resolvers"
+
+  - id: new-listener-on-connect
+    title: A process started listening on a TCP port while the cable was connected
+    severity: medium
+    rationale: >
+      A new listening socket appearing in correlation with the cable can be a
+      management/callback service brought up by a helper the cable triggered.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: listening_socket

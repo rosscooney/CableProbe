@@ -35,6 +35,9 @@ VOLATILE_KEYS = {
     "bus",
     "raw",
     "ip_addresses",
+    "refcount",
+    "inode",
+    "vconn_source",
 }
 
 _ADD_ACTIONS = {"add", "bind", "online"}

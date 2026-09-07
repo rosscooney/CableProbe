@@ -7,6 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 from cableprobe.config import DEFAULT_PROBES, Config
+from cableprobe.probes import PROBE_REGISTRY
+
+
+def test_every_default_probe_is_registered():
+    assert set(DEFAULT_PROBES) <= set(PROBE_REGISTRY)
+    # no duplicates in the default list
+    assert len(DEFAULT_PROBES) == len(set(DEFAULT_PROBES))
 
 
 def test_defaults():

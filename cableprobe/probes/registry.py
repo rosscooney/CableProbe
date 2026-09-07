@@ -11,22 +11,45 @@ from cableprobe.probes.base import Probe
 from cableprobe.probes.block import BlockDeviceProbe
 from cableprobe.probes.input_devices import InputDeviceProbe
 from cableprobe.probes.kernel_log import KernelLogProbe
+from cableprobe.probes.media_devices import AudioDeviceProbe, VideoDeviceProbe
 from cableprobe.probes.network import NetworkInterfaceProbe
+from cableprobe.probes.network_state import ListenerProbe, RoutingProbe
 from cableprobe.probes.processes import ProcessProbe
+from cableprobe.probes.serial_devices import SerialDeviceProbe
+from cableprobe.probes.system_state import (
+    KernelModuleProbe,
+    MountProbe,
+    PciDeviceProbe,
+)
 from cableprobe.probes.udev_monitor import UdevMonitorProbe
 from cableprobe.probes.usb import UsbProbe
+from cableprobe.probes.usb_sysfs import UsbDescriptorProbe, UsbTopologyProbe
+from cableprobe.probes.usbc_pd import UsbcPdProbe
 
 log = get_logger("probe.registry")
 
-PROBE_REGISTRY: dict[str, type[Probe]] = {
-    UdevMonitorProbe.name: UdevMonitorProbe,
-    UsbProbe.name: UsbProbe,
-    BlockDeviceProbe.name: BlockDeviceProbe,
-    NetworkInterfaceProbe.name: NetworkInterfaceProbe,
-    InputDeviceProbe.name: InputDeviceProbe,
-    ProcessProbe.name: ProcessProbe,
-    KernelLogProbe.name: KernelLogProbe,
-}
+_PROBE_CLASSES: tuple[type[Probe], ...] = (
+    UdevMonitorProbe,
+    UsbProbe,
+    UsbDescriptorProbe,
+    UsbTopologyProbe,
+    UsbcPdProbe,
+    BlockDeviceProbe,
+    MountProbe,
+    NetworkInterfaceProbe,
+    RoutingProbe,
+    ListenerProbe,
+    InputDeviceProbe,
+    SerialDeviceProbe,
+    AudioDeviceProbe,
+    VideoDeviceProbe,
+    PciDeviceProbe,
+    KernelModuleProbe,
+    ProcessProbe,
+    KernelLogProbe,
+)
+
+PROBE_REGISTRY: dict[str, type[Probe]] = {cls.name: cls for cls in _PROBE_CLASSES}
 
 
 def build_probes(config: Config, session_start: float) -> list[Probe]:

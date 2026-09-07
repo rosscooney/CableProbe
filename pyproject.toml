@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "CableProbe"
-version = "0.1.0"
+version = "0.1.2"
 description = "Open-source defensive USB cable analysis tool for Linux"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,8 +37,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rosscooney/CableProbe"
+Homepage = "https://www.cableprobe.com"
 Source = "https://github.com/rosscooney/CableProbe"
+Download = "https://github.com/rosscooney/CableProbe/releases"
 Issues = "https://github.com/rosscooney/CableProbe/issues"
 
 [project.scripts]

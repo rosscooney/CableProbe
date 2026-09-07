@@ -10,6 +10,7 @@ import functools
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from cableprobe.config import Config
@@ -91,6 +92,27 @@ class Probe(abc.ABC):
 
 def have_tool(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def sysfs_device_is_usb(sys_dir: Path | str) -> bool:
+    """True if the ``device`` symlink under a ``/sys/class/<x>/<name>`` dir
+    resolves to a path that traverses the USB bus."""
+
+    link = Path(sys_dir) / "device"
+    try:
+        return "/usb" in str(link.resolve()).lower()
+    except OSError:
+        return False
+
+
+def sysfs_driver(sys_dir: Path | str) -> str | None:
+    """Return the bound kernel driver name for a ``/sys/class/<x>/<name>`` dir."""
+
+    link = Path(sys_dir) / "device" / "driver"
+    try:
+        return link.resolve().name
+    except OSError:
+        return None
 
 
 def run_command(args: list[str], *, timeout: float = 15.0) -> tuple[int, str, str]:

@@ -194,7 +194,7 @@ def check(
     typer.echo(f"  root:        {host.get('running_as_root')}")
 
     typer.secho("\nExternal tools", fg="cyan", bold=True)
-    for tool in ("lsusb", "lsblk", "journalctl", "dmesg", "udevadm"):
+    for tool in ("lsusb", "lsblk", "journalctl", "dmesg", "udevadm", "ss", "lspci"):
         present = shutil.which(tool) is not None
         mark = "ok " if present else "MISSING"
         typer.secho(f"  {mark:8}{tool}", fg="green" if present else "yellow")

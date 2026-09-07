@@ -4,10 +4,15 @@
 (developed and tested on Raspberry Pi OS / Debian, and reasonably portable to
 other Debian/Ubuntu systems).
 
-CableProbe helps you analyse an *unknown* USB-C-to-USB-C cable in a controlled
-environment and collect evidence that may indicate unexpected or potentially
-malicious behaviour (hidden HID devices, network gadgets, mass storage, serial
-channels, transient enumeration, kernel errors, …).
+- Home page: <https://www.cableprobe.com>
+- Source & downloads: <https://github.com/rosscooney/CableProbe>
+  ([releases](https://github.com/rosscooney/CableProbe/releases))
+- Package: [`cableprobe` on PyPI](https://pypi.org/project/cableprobe/)
+
+CableProbe watches a sacrificial Linux host while you connect an *unknown*
+USB-C-to-USB-C cable, then compares before, during and after to surface hidden
+HID devices, rogue network gadgets, mass storage, serial channels, transient
+enumeration and kernel errors.
 
 CableProbe **only observes, records and reports**. It does not inject payloads,
 exploit anything, capture credentials, establish persistence or provide remote
@@ -38,15 +43,30 @@ differences to produce prioritised findings.
 
 ### Probes (observation only)
 
-| Probe          | Observes                                                             |
-|----------------|---------------------------------------------------------------------|
-| `udev_monitor` | Live udev add/remove/change events across all subsystems.           |
-| `usb`          | USB device inventory (vendor/model, interface classes, HID, hub).   |
-| `block`        | Block devices and their transport (`lsblk`).                        |
-| `network`      | Network interfaces, drivers, USB-ness, addresses.                   |
-| `input`        | Input / HID devices (keyboards, mice, tablets).                     |
-| `process`      | Processes started after the session began.                          |
-| `kernel_log`   | USB-relevant kernel / journal lines emitted during the session.     |
+| Probe             | Observes                                                                         |
+|-------------------|---------------------------------------------------------------------------------|
+| `udev_monitor`    | Live udev add/remove/change events across all subsystems.                        |
+| `usb`             | USB device inventory (vendor/model, interface classes, HID, hub).                |
+| `usb_descriptors` | Per-interface USB descriptors from sysfs (class/subclass/driver/endpoints).      |
+| `usb_topology`    | USB hub/port tree — hub count, device count, depth, per-hub inventory.           |
+| `usbc_pd`         | USB-C / Power Delivery port + partner state: data/power roles, alt modes.        |
+| `block`           | Block devices and their transport (`lsblk`).                                     |
+| `mounts`          | Filesystem mounts backed by a device or under removable-media paths.             |
+| `network`         | Network interfaces, drivers, USB-ness, addresses.                                |
+| `routing`         | Default route and DNS resolvers (gateway / resolver hijack).                     |
+| `listeners`       | TCP sockets in `LISTEN` state (with owning process when `ss` is present).        |
+| `input`           | Input / HID devices (keyboards, mice, tablets).                                  |
+| `serial`          | Serial / modem (TTY) devices, including USB serial (CDC-ACM, FTDI, cp210x).      |
+| `audio`           | Audio (sound-card) devices, including USB audio class.                           |
+| `video`           | video4linux camera / capture devices, including UVC.                             |
+| `pci`             | PCI and Thunderbolt devices (USB4/TBT PCIe-tunnel / DMA surface).                |
+| `kernel_modules`  | Loaded kernel modules — catches gadget drivers loaded on connect.                |
+| `process`         | Processes started after the session began.                                       |
+| `kernel_log`      | USB-relevant kernel / journal lines emitted during the session.                  |
+
+Probes that need hardware or kernel interfaces the host does not expose (no
+Type-C class, no `/sys/bus/pci`, …) report themselves unavailable in
+`cableprobe check` and are skipped — that is not an error.
 
 ## Install
 
@@ -117,7 +137,10 @@ session:
   post_test_seconds: 30
   sample_interval_seconds: 2.0
 probes:
-  enabled: [udev_monitor, usb, block, network, input, process, kernel_log]
+  # default: all probes; list a subset to narrow the session
+  enabled: [udev_monitor, usb, usb_descriptors, usb_topology, usbc_pd, block,
+            mounts, network, routing, listeners, input, serial, audio, video,
+            pci, kernel_modules, process, kernel_log]
   kernel_log_backend: auto        # auto | journalctl | dmesg
   kernel_log_keywords: []         # extra case-insensitive substrings to keep
   capture_process_cmdline: true   # false => store only the executable name
@@ -180,8 +203,10 @@ pytest
 ```
 
 The analysis, rules and report layers are pure and fully unit-tested without
-hardware. Probe parsers (`lsusb`, `lsblk`, `/proc/bus/input/devices`, kernel
-lines) are tested against captured sample output.
+hardware. Each probe keeps a pure parser (of `lsusb` / `lsblk` / `/proc`
+output) or sysfs-tree scanner that is tested against captured samples or a
+fake `/sys` tree — see `tests/test_probes_parsing.py` and
+`tests/test_probes_new.py`.
 
 The source lives at <https://github.com/rosscooney/CableProbe>. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute,

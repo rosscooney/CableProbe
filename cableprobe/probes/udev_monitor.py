@@ -21,8 +21,10 @@ from cableprobe.models import (
     KIND_HID_DEVICE,
     KIND_INPUT_DEVICE,
     KIND_NETWORK_INTERFACE,
+    KIND_PCI_DEVICE,
     KIND_SERIAL_DEVICE,
     KIND_USB_DEVICE,
+    KIND_USB_PD,
     KIND_VIDEO_DEVICE,
     Observation,
     ProbeEvent,
@@ -47,6 +49,9 @@ _SUBSYSTEM_KIND = {
     "tty": KIND_SERIAL_DEVICE,
     "sound": KIND_AUDIO_DEVICE,
     "video4linux": KIND_VIDEO_DEVICE,
+    "pci": KIND_PCI_DEVICE,
+    "thunderbolt": KIND_PCI_DEVICE,
+    "typec": KIND_USB_PD,
 }
 
 _INTERESTING_ATTR_KEYS = (
