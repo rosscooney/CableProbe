@@ -39,10 +39,10 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
         "badusb",
         ("hid-keyboard", "hid-pointer", "hid-interface", "hid-generic", "composite-with-hid"),
         "A keyboard / mouse-type device appeared when you connected the cable. "
-        "This is the most common trick for a malicious cable: a tiny keyboard "
-        "hidden in the plug that types commands by itself ('BadUSB'). If you did "
-        "not deliberately connect an input device, treat this cable as an attack "
-        "tool.",
+        "This is the most common trick for a malicious cable: a hidden keyboard "
+        "that types commands by itself ('BadUSB'), or a hidden mouse that clicks "
+        "through confirmation prompts. If you did not deliberately connect an "
+        "input device through this cable, treat it as an attack tool.",
     ),
     (
         "network",
@@ -93,7 +93,7 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
     ),
     (
         "hub",
-        ("usb-hub", "usb-topology"),
+        ("usb-hub-appeared",),
         "A USB hub appeared inside the connection. Hidden hubs are how several "
         "malicious devices (keyboard + storage + network) are stacked behind a "
         "single plug.",

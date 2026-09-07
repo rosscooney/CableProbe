@@ -78,6 +78,10 @@ class ProbeConfig(BaseModel):
     kernel_log_backend: str = "auto"
     #: Extra keyword filters for kernel-log lines (case-insensitive substring).
     kernel_log_keywords: list[str] = Field(default_factory=list)
+    #: Keep routine USB enumeration chatter ("New USB device found", "Product:",
+    #: link-speed lines) in the kernel-log probe. Off by default -- the usb /
+    #: input / usb_descriptors probes already carry that, structured.
+    kernel_log_verbose: bool = False
     #: Record full process command lines in the report. Command lines can carry
     #: secrets (e.g. passwords passed as arguments); set false to store only the
     #: executable name.

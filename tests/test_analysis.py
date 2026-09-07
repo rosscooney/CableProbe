@@ -124,3 +124,18 @@ def test_build_summary_counts(phase_builder):
     assert summary["cable_correlated_change_count"] == 1
     assert summary["persisted_after_disconnect_count"] == 1
     assert summary["highest_severity"] is None
+
+
+def test_persisted_count_ignores_kernel_log_and_process_noise(phase_builder):
+    # kernel log lines and processes never "revert" - they must not inflate the
+    # "did not revert" heads-up
+    kmsg = obs("kernel_message", "kmsg:usb # new device", "usb 1-1: new device")
+    proc = obs("process", "proc:1:sleep", "process sleep")
+    dev = obs(KIND_USB_DEVICE, "usb:1:2", "Sticky device")
+    phases = phase_builder(
+        baseline_end=[],
+        test_end=[kmsg, proc, dev],
+        post_end=[kmsg, proc, dev],  # all still "present"
+    )
+    summary = build_summary(phases, analyse(phases), [])
+    assert summary["persisted_after_disconnect_count"] == 1  # only the usb_device

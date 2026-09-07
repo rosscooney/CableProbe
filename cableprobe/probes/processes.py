@@ -4,14 +4,21 @@
 """Process inventory (only processes started after the session began).
 
 Process churn is noisy, so this probe deliberately reports only *userspace*
-processes whose creation time is at or after the session start. Kernel threads
-(``kworker/*``, ``ksoftirqd/*``, ... - children of ``kthreadd``, pid 2) are
-skipped: the kernel spawns, renames and reaps them constantly and none of that
-correlates with a cable. A helper daemon spawning when a storage device is
-auto-mounted, for example, would still show up here.
+processes whose creation time is at or after the session start, and drops:
+
+* kernel threads (``kworker/*``, ``ksoftirqd/*``, ... - children of
+  ``kthreadd``), which the kernel spawns, renames and reaps constantly;
+* the helper commands CableProbe itself shells out to (``lsusb``, ``ss``,
+  ``journalctl``, ...);
+* trivial cron / systemd / shell plumbing (``sleep``, ``flock``, ...).
+
+A helper daemon spawning when a storage device is auto-mounted, or
+ModemManager probing a rogue serial gadget, still shows up here.
 """
 
 from __future__ import annotations
+
+import os
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import KIND_PROCESS, Observation
@@ -49,6 +56,11 @@ def _is_kernel_thread(pid: int | None, ppid: int | None, name: str | None) -> bo
     return bool(name and name.startswith(_KERNEL_THREAD_PREFIXES))
 
 
+#: Trivial helper commands that show up constantly in cron / systemd / shell
+#: plumbing and never carry a cable signal on their own.
+_NOISE_PROCESS_NAMES = {"sleep", "usleep", "flock", "run-parts"}
+
+
 class ProcessProbe(Probe):
     name = "process"
     description = "New userspace processes started since the session began"
@@ -67,6 +79,7 @@ class ProcessProbe(Probe):
         if capture_cmdline:
             fields.append("cmdline")
 
+        own_pid = os.getpid()
         observations: list[Observation] = []
         for proc in psutil.process_iter(fields):
             try:
@@ -77,6 +90,12 @@ class ProcessProbe(Probe):
                 if _is_kernel_thread(
                     info.get("pid"), info.get("ppid"), info.get("name")
                 ):
+                    continue
+                # helper commands CableProbe itself shells out to (lsusb, ss,
+                # journalctl, ...) and trivial cron/systemd plumbing
+                if info.get("ppid") == own_pid:
+                    continue
+                if (info.get("name") or "") in _NOISE_PROCESS_NAMES:
                     continue
                 cmdline = info.get("cmdline") or []
                 observations.append(

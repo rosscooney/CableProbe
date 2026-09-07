@@ -64,7 +64,7 @@ Type-C port, and simply skips otherwise.
 | `network`         | Network interfaces, drivers, USB-ness, addresses.                                |
 | `routing`         | Default route and DNS resolvers (gateway / resolver hijack).                     |
 | `listeners`       | TCP `LISTEN` sockets on fixed (non-ephemeral) ports; owning process when `ss` is present. |
-| `input`           | Input / HID devices (keyboards, mice, tablets).                                  |
+| `input`           | Input / HID devices (keyboards, mice, tablets) — one entry per physical device.  |
 | `serial`          | Serial / modem (TTY) devices, including USB serial (CDC-ACM, FTDI, cp210x).      |
 | `audio`           | Audio (sound-card) devices, including USB audio class.                           |
 | `video`           | video4linux camera / capture devices, including UVC.                             |
@@ -73,7 +73,7 @@ Type-C port, and simply skips otherwise.
 | `wifi_scan`       | Wi-Fi APs in range (an implant cable may run its own AP). Active scan, boundary-only. |
 | `keystroke_cadence` | Key-press *timing* per input device — flags superhuman / robotic typing.       |
 | `process`         | New userspace processes started after the session began (kernel threads excluded). |
-| `kernel_log`      | USB-relevant kernel / journal lines emitted during the session.                  |
+| `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
 Type-C class, no `/sys/bus/pci`, …) are skipped automatically. `cableprobe
@@ -130,7 +130,7 @@ work, but the live probes are unavailable.
 # 1a. pipx — to the latest *published* release on PyPI
 pipx upgrade cableprobe
 pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.6    # pin / roll back to a specific release
+pipx install --force cableprobe==0.3.7    # pin / roll back to a specific release
 
 # 1b. pipx — to the latest development code (main), ahead of the last release
 pipx install --force "git+https://github.com/rosscooney/CableProbe"
@@ -152,7 +152,7 @@ cableprobe check
 ```
 
 `pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.6` means there is no newer release
+`cableprobe is already at latest version 0.3.7` means there is no newer release
 — publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
 use the `git+https://…` form above to track `main`. If a new version drops a
 probe or changes report fields it is called out in the GitHub release notes;
@@ -174,6 +174,7 @@ sudo cableprobe run --name "suspect-cable-01" \
 sudo cableprobe run --auto --baseline 20 --test 60 --post-test 20
 
 # Inspect a saved report
+cableprobe report                         # lists saved reports, asks which
 cableprobe report cableprobe-sessions/2026*.cableprobe.json
 cableprobe report <file> --format json | jq .
 
@@ -219,6 +220,7 @@ probes:
             pci, kernel_modules, wifi_scan, keystroke_cadence, process, kernel_log]
   kernel_log_backend: auto        # auto | journalctl | dmesg
   kernel_log_keywords: []         # extra case-insensitive substrings to keep
+  kernel_log_verbose: false       # true => also keep routine enumeration chatter
   capture_process_cmdline: true   # false => store only the executable name
   capture_keystroke_timing: true  # false => disable the keystroke_cadence probe
 rules_file: null                  # null => packaged default rules

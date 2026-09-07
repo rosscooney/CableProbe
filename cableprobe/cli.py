@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shlex
 import shutil
@@ -437,12 +438,87 @@ def rules(
         typer.echo(f"           {rule.title}")
 
 
+_SEVERITY_COLOUR = {
+    "critical": "red",
+    "high": "red",
+    "medium": "yellow",
+    "low": "cyan",
+    "info": "bright_black",
+}
+
+
+def _list_saved_reports(output_dir: Path) -> list[tuple[Path, dict]]:
+    """Return (path, {name, when, severity, findings}) newest-first."""
+
+    rows: list[tuple[Path, dict]] = []
+    for path in sorted(output_dir.glob("*.cableprobe.json"), reverse=True):
+        meta = {"name": path.stem, "when": "", "severity": None, "findings": None}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            meta["name"] = data.get("metadata", {}).get("session_name") or path.stem
+            meta["when"] = data.get("metadata", {}).get("started_at", "")[:19].replace(
+                "T", " "
+            )
+            summary = data.get("summary", {})
+            meta["severity"] = summary.get("highest_severity")
+            meta["findings"] = summary.get("finding_count")
+        except (OSError, ValueError):
+            pass
+        rows.append((path, meta))
+    return rows
+
+
+def _pick_report(output_dir: Path) -> Path:
+    if not output_dir.is_dir():
+        typer.secho(f"error: no reports directory at {output_dir}", fg="red", err=True)
+        raise typer.Exit(code=2)
+    rows = _list_saved_reports(output_dir)
+    if not rows:
+        typer.secho(f"error: no saved reports in {output_dir}", fg="red", err=True)
+        raise typer.Exit(code=2)
+
+    typer.secho(f"Saved reports in {output_dir}:\n", fg="cyan", bold=True)
+    for i, (_, m) in enumerate(rows, start=1):
+        if m["findings"]:
+            sev = m["severity"] or "info"
+            tag = typer.style(
+                f"{sev} ({m['findings']} finding(s))",
+                fg=_SEVERITY_COLOUR.get(sev, "white"),
+            )
+        else:
+            tag = typer.style("clean", fg="green")
+        typer.echo(f"  {i:>3}. {m['when'] or '?':<19}  {m['name']:<32}  {tag}")
+    typer.echo("")
+    try:
+        choice = typer.prompt("Enter the number of the report to view", type=int)
+    except typer.Abort:
+        typer.secho("\nno selection - pass a report path instead.", fg="red", err=True)
+        raise typer.Exit(code=2) from None
+    if not 1 <= choice <= len(rows):
+        typer.secho(f"error: {choice} is out of range (1-{len(rows)})", fg="red", err=True)
+        raise typer.Exit(code=2)
+    return rows[choice - 1][0]
+
+
 @app.command()
 def report(
-    path: Path = typer.Argument(..., help="Path to a .cableprobe.json report."),
+    path: Optional[Path] = typer.Argument(
+        None, help="Path to a .cableprobe.json report (omit to pick from saved ones)."
+    ),
     output_format: str = typer.Option("summary", "--format", "-f", help="summary | json"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config file."),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o", help="Where saved reports live (default: from config)."
+    ),
 ) -> None:
-    """Re-render a previously saved report."""
+    """Re-render a previously saved report.
+
+    With no PATH, lists the reports in the output directory and asks which one.
+    """
+
+    if path is None:
+        base = output_dir or _load_config(config).output_dir
+        path = _pick_report(Path(base))
 
     if not path.is_file():
         typer.secho(f"error: no such file: {path}", fg="red", err=True)

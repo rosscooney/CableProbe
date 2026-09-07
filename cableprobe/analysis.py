@@ -43,6 +43,25 @@ VOLATILE_KEYS = {
 _ADD_ACTIONS = {"add", "bind", "online"}
 _REMOVE_ACTIONS = {"remove", "unbind", "offline"}
 
+#: Kinds where "appeared during test, still present after disconnect" is a
+#: genuine "something was left on the host" red flag. Kernel log lines (which
+#: only ever accumulate), processes, the topology summary and config-style
+#: observations are deliberately excluded - counting them makes a routine
+#: session look alarming.
+PERSISTENCE_KINDS = {
+    "usb_device",
+    "usb_interface",
+    "input_device",
+    "hid_device",
+    "network_interface",
+    "block_device",
+    "serial_device",
+    "audio_device",
+    "video_device",
+    "pci_device",
+    "mount",
+}
+
 
 def _diff_attributes(before: dict, after: dict) -> list[AttributeChange]:
     changes: list[AttributeChange] = []
@@ -213,7 +232,9 @@ def build_summary(
     persisted = [
         d
         for d in cable_correlated
-        if d.change == "appeared" and d.reverted_after_disconnect is False
+        if d.change == "appeared"
+        and d.reverted_after_disconnect is False
+        and d.kind in PERSISTENCE_KINDS
     ]
 
     return {

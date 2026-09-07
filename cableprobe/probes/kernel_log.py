@@ -19,31 +19,60 @@ from cableprobe.probes.base import Probe, ProbeAvailability, have_tool, run_comm
 
 log = get_logger("probe.kernel")
 
-DEFAULT_KEYWORDS = [
-    "usb",
-    "hub",
-    "hid",
-    "input",
+# Lines that are worth surfacing on their own: things the structured probes do
+# NOT already tell you - enumeration failures, electrical faults, and the
+# network / serial *gadget* driver classes a hostile cable would bring up.
+SIGNAL_KEYWORDS = [
+    # USB network / serial / MBIM gadget classes
     "cdc_ether",
     "cdc_ncm",
+    "cdc_mbim",
+    "cdc_subset",
     "cdc_acm",
     "rndis",
     "usbnet",
     "ax88",
     "r8152",
+    "r8153",
+    "huawei_cdc_ncm",
+    # enumeration failures / electrical problems
+    "device descriptor read",
+    "unable to enumerate",
+    "cannot enumerate",
+    "unable to get descriptor",
+    "not accepting address",
+    "device not accepting",
+    "can't set config",
+    "rejected 1 configuration",
+    "string descriptor 0 read error",
+    "over-current",
+    "overcurrent",
+    "ep0 in",
+    "-71",
+    "-110",
+    "-32",
+    # hubs (a hidden hub inside a cable)
+    "USB hub found",
+    "hub_port_",
+]
+
+# Everything above, plus the routine enumeration chatter ("New USB device
+# found", "Product:", "input: X as ...", link-speed lines). Enabled with
+# ``probes.kernel_log_verbose: true`` - useful for forensics, noisy by default
+# because the ``usb`` / ``input`` / ``usb_descriptors`` probes already carry it.
+VERBOSE_KEYWORDS = SIGNAL_KEYWORDS + [
+    "usb",
+    "hub",
+    "hid",
+    "input",
     "new full-speed",
     "new high-speed",
     "new low-speed",
     "new SuperSpeed",
-    "device descriptor read",
-    "unable to enumerate",
-    "over-current",
-    "not accepting address",
-    "device not accepting",
-    "ep0 in",
-    "-71",
-    "-110",
 ]
+
+#: Back-compat alias.
+DEFAULT_KEYWORDS = SIGNAL_KEYWORDS
 
 _LEADING_TIMESTAMP = re.compile(r"^\[\s*\d+\.\d+\]\s*")
 _ISO_PREFIX = re.compile(r"^\S+\s+\S+\s+\S+\s+\S+\s+kernel:\s*", re.IGNORECASE)
@@ -107,7 +136,12 @@ class KernelLogProbe(Probe):
         return ProbeAvailability(ok=True, detail=f"using {backend}")
 
     def _keywords(self) -> list[str]:
-        return DEFAULT_KEYWORDS + list(self.config.probes.kernel_log_keywords)
+        base = (
+            VERBOSE_KEYWORDS
+            if getattr(self.config.probes, "kernel_log_verbose", False)
+            else SIGNAL_KEYWORDS
+        )
+        return base + list(self.config.probes.kernel_log_keywords)
 
     def snapshot(self) -> list[Observation]:
         backend = self._backend()

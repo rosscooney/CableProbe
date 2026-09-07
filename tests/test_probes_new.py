@@ -81,14 +81,20 @@ _CFG = Config()
 class FakeUdevDevice:
     """Minimal stand-in for a pyudev.Device: a property dict plus a few attrs."""
 
-    def __init__(self, props: dict, *, sys_name="dev0", driver=None, parent=object()):
+    def __init__(
+        self, props: dict, *, sys_name="dev0", driver=None, parent=object(), usb_parent=None
+    ):
         self._props = props
         self.sys_name = sys_name
         self.driver = driver
         self.parent = parent
+        self._usb_parent = usb_parent
 
     def get(self, key, default=None):
         return self._props.get(key, default)
+
+    def find_parent(self, subsystem, device_type=None):
+        return self._usb_parent
 
 
 # --------------------------------------------------------------------------
@@ -473,6 +479,45 @@ def test_process_probe_skips_kernel_threads():
     assert _is_kernel_thread(1234, 1000, "python3") is False
 
 
+def test_process_probe_filters_noise_and_own_children(monkeypatch):
+    import os
+    import time
+
+    from cableprobe.probes.processes import ProcessProbe
+
+    now = time.time()
+    own = os.getpid()
+
+    class P:
+        def __init__(self, info):
+            self.info = info
+
+    procs = [
+        P({"pid": 10, "name": "sleep", "ppid": 1, "create_time": now, "username": "root"}),
+        P({"pid": 11, "name": "lsusb", "ppid": own, "create_time": now, "username": "root"}),
+        P({"pid": 12, "name": "ModemManager", "ppid": 1, "create_time": now, "username": "root"}),
+        P({"pid": 13, "name": "bash", "ppid": 1, "create_time": now - 9999, "username": "pi"}),
+    ]
+    monkeypatch.setattr(
+        "cableprobe.probes.processes.psutil.process_iter", lambda fields: procs
+    )
+    out = ProcessProbe(_CFG, now - 1).snapshot()
+    names = {o.attributes["name"] for o in out}
+    assert names == {"ModemManager"}  # sleep / own child / pre-session dropped
+
+
+def test_kernel_log_signal_keywords_exclude_routine_chatter():
+    from cableprobe.probes.kernel_log import SIGNAL_KEYWORDS, VERBOSE_KEYWORDS
+
+    assert "usb" not in SIGNAL_KEYWORDS
+    assert "input" not in SIGNAL_KEYWORDS
+    assert "hid" not in SIGNAL_KEYWORDS
+    assert "cdc_ncm" in SIGNAL_KEYWORDS
+    assert "unable to enumerate" in SIGNAL_KEYWORDS
+    # verbose mode brings the chatter back
+    assert "usb" in VERBOSE_KEYWORDS and "cdc_ncm" in VERBOSE_KEYWORDS
+
+
 def test_input_probe_dedupes_event_char_nodes(monkeypatch):
     from cableprobe.probes import input_devices
     from cableprobe.probes.input_devices import InputDeviceProbe
@@ -513,6 +558,49 @@ def test_input_probe_dedupes_event_char_nodes(monkeypatch):
     assert [o.identity for o in out] == ["/d/input/input5"]
     assert out[0].attributes["ID_INPUT_KEYBOARD"] == "1"
     assert out[0].label == "input device: USB Keyboard"
+
+
+def test_input_probe_merges_collections_of_one_usb_device(monkeypatch):
+    from cableprobe.probes import input_devices
+    from cableprobe.probes.input_devices import InputDeviceProbe
+
+    usb = object()  # same parent object for all three collections
+
+    class FakeCtx:
+        def list_devices(self, subsystem):
+            return [
+                FakeUdevDevice(
+                    {"NAME": '"USB Keyboard"', "ID_INPUT": "1",
+                     "ID_INPUT_KEYBOARD": "1", "DEVPATH": "/d/input5", "ID_BUS": "usb"},
+                    sys_name="input5", usb_parent=usb,
+                ),
+                FakeUdevDevice(
+                    {"NAME": '"USB Keyboard Consumer Control"', "ID_INPUT": "1",
+                     "DEVPATH": "/d/input6"},
+                    sys_name="input6", usb_parent=usb,
+                ),
+                FakeUdevDevice(
+                    {"NAME": '"USB Keyboard System Control"', "ID_INPUT": "1",
+                     "DEVPATH": "/d/input7"},
+                    sys_name="input7", usb_parent=usb,
+                ),
+            ]
+
+    usb_dev = FakeUdevDevice({}, sys_name="1-1.2")
+    monkeypatch.setattr(input_devices, "pyudev", object())
+    monkeypatch.setattr(input_devices, "udev_context", lambda: FakeCtx())
+    monkeypatch.setattr(
+        input_devices, "_usb_parent_key", lambda d: "1-1.2" if d.get("ID_INPUT") else None
+    )
+
+    out = InputDeviceProbe(_CFG, 0.0).snapshot()
+    assert len(out) == 1
+    merged = out[0]
+    assert merged.identity == "input:usb:1-1.2"
+    assert merged.label == "input device: USB Keyboard"  # shortest name wins
+    assert merged.attributes["ID_INPUT_KEYBOARD"] == "1"
+    assert merged.attributes["collection_count"] == 3
+    assert "USB Keyboard Consumer Control" in merged.attributes["collections"]
 
 
 def test_decode_le_ipv4_bad_input_is_returned_unchanged():

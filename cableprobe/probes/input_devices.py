@@ -130,6 +130,52 @@ def _observation_from_udev(device) -> Observation:
     )
 
 
+def _usb_parent_key(device) -> str | None:
+    """The sysfs name of the USB device an input node hangs off (``1-1.2``)."""
+
+    try:
+        parent = device.find_parent("usb", "usb_device")
+    except Exception:  # noqa: BLE001  # pragma: no cover - pyudev quirks
+        parent = None
+    return parent.sys_name if parent is not None else None
+
+
+def _merge_input_group(key: str, members: list[Observation]) -> Observation:
+    """Collapse the input collections of one USB device into one observation."""
+
+    if len(members) == 1:
+        return members[0]
+
+    primary = min(members, key=lambda o: len(str(o.attributes.get("name") or o.label)))
+    caps = sorted(
+        {c for m in members for c in (m.attributes.get("capabilities") or [])}
+    )
+    collections = sorted(
+        {str(m.attributes.get("name") or "").strip() for m in members} - {""}
+    )
+
+    def _any_flag(flag: str) -> str | None:
+        return "1" if any(m.attributes.get(flag) == "1" for m in members) else None
+
+    attrs = dict(primary.attributes)
+    attrs.update(
+        {
+            "capabilities": caps,
+            "ID_INPUT_KEYBOARD": _any_flag("ID_INPUT_KEYBOARD"),
+            "ID_INPUT_MOUSE": _any_flag("ID_INPUT_MOUSE"),
+            "collections": collections,
+            "collection_count": len(members),
+        }
+    )
+    name = str(primary.attributes.get("name") or primary.label)
+    return Observation(
+        kind=KIND_INPUT_DEVICE,
+        identity=f"input:usb:{key}",
+        label=f"input device: {name}",
+        attributes=attrs,
+    )
+
+
 class InputDeviceProbe(Probe):
     name = "input"
     description = "Inventory of input/HID devices (keyboards, mice, tablets)"
@@ -145,8 +191,8 @@ class InputDeviceProbe(Probe):
         if pyudev is not None:
             try:
                 context = udev_context()
-                out: list[Observation] = []
-                seen: set[str] = set()
+                singles: dict[str, Observation] = {}
+                groups: dict[str, list[Observation]] = {}
                 for device in context.list_devices(subsystem="input"):
                     # The "input" subsystem lists both the logical "inputN"
                     # devices and their "eventN" / "mouseN" / "jsN" char-device
@@ -157,10 +203,17 @@ class InputDeviceProbe(Probe):
                     if device.get("ID_INPUT") != "1" and not device.get("NAME"):
                         continue
                     obs = _observation_from_udev(device)
-                    if obs.identity in seen:
-                        continue
-                    seen.add(obs.identity)
-                    out.append(obs)
+                    # One physical USB keyboard / mouse often exposes several
+                    # "inputN" collections (keyboard + consumer-control + system
+                    # -control). Merge them into one observation per USB device
+                    # so it reads as "a keyboard appeared", not three findings.
+                    key = _usb_parent_key(device)
+                    if key is None:
+                        singles.setdefault(obs.identity, obs)
+                    else:
+                        groups.setdefault(key, []).append(obs)
+                out = list(singles.values())
+                out.extend(_merge_input_group(k, m) for k, m in groups.items())
                 if out:
                     return out
             except Exception as exc:  # noqa: BLE001  # pragma: no cover

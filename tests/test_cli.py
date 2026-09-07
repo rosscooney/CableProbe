@@ -104,6 +104,39 @@ def test_report_command_json(tmp_path, monkeypatch):
     assert '"session_name": "fake"' in result.stdout
 
 
+def test_report_command_picker_lists_and_selects(tmp_path):
+    from cableprobe.report import write_report
+
+    for name in ("alpha", "bravo", "charlie"):
+        r = _fake_report()
+        r.metadata.session_name = name
+        write_report(r, tmp_path, filename=f"2026010{len(name)}T000000Z-{name}.cableprobe.json")
+
+    result = runner.invoke(app, ["report", "--output-dir", str(tmp_path)], input="2\n")
+    assert result.exit_code == 0, result.output
+    assert "Saved reports in" in result.output
+    assert "1." in result.output and "3." in result.output
+    # newest filename first -> charlie (…7…), bravo (…5…), alpha (…5? -> alpha len4)
+    # just assert the selected one got rendered
+    assert "CableProbe session report" not in result.output  # rich path
+    assert "What this means" in result.output
+
+
+def test_report_command_picker_out_of_range(tmp_path):
+    from cableprobe.report import write_report
+
+    write_report(_fake_report(), tmp_path, filename="20260101T000000Z-x.cableprobe.json")
+    result = runner.invoke(app, ["report", "--output-dir", str(tmp_path)], input="9\n")
+    assert result.exit_code == 2
+    assert "out of range" in result.output
+
+
+def test_report_command_picker_empty_dir(tmp_path):
+    result = runner.invoke(app, ["report", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 2
+    assert "no saved reports" in result.output
+
+
 def test_run_rejects_bad_config(tmp_path):
     bad = tmp_path / "c.yaml"
     bad.write_text("session: {test_seconds: -5}\n", encoding="utf-8")
