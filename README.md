@@ -92,9 +92,13 @@ picture; the short version:
 ```bash
 # 1. pip / pipx on an existing Raspberry Pi OS / Debian host
 pipx install cableprobe
-sudo apt install usbutils util-linux        # CLI tools CableProbe shells out to
+sudo apt install usbutils util-linux iw     # CLI tools CableProbe shells out to
+#   note: this puts `cableprobe` in ~/.local/bin, which is NOT on root's PATH,
+#   so `sudo cableprobe` needs a full path (see "command not found" above).
 
-# 2. one command on a Pi (isolated venv under /opt/cableprobe)
+# 2. one command on a Pi (isolated venv under /opt/cableprobe) — RECOMMENDED for
+#    a test rig: links /usr/local/bin/cableprobe so `sudo cableprobe` just works,
+#    and apt-installs the helper CLIs (usbutils, util-linux, iw, pciutils)
 sudo ./scripts/install.sh                    # sudo scripts/uninstall.sh to remove
 
 # 3. from a checkout, for development
@@ -117,7 +121,7 @@ work, but the live probes are unavailable.
 # 1a. pipx — to the latest *published* release on PyPI
 pipx upgrade cableprobe
 pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.1    # pin / roll back to a specific release
+pipx install --force cableprobe==0.3.2    # pin / roll back to a specific release
 
 # 1b. pipx — to the latest development code (main), ahead of the last release
 pipx install --force "git+https://github.com/rosscooney/CableProbe"
@@ -139,7 +143,7 @@ cableprobe check
 ```
 
 `pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.1` means there is no newer release
+`cableprobe is already at latest version 0.3.2` means there is no newer release
 — publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
 use the `git+https://…` form above to track `main`. If a new version drops a
 probe or changes report fields it is called out in the GitHub release notes;
@@ -173,6 +177,14 @@ udev-attribute, USB-descriptor, keystroke-timing and raw-socket probes see much
 less detail and some are skipped entirely. `cableprobe run` detects this and, in
 interactive mode, prints the `sudo` command and asks whether to continue anyway;
 `--auto` just warns and proceeds. `cableprobe check` flags it too.
+
+**`sudo: cableprobe: command not found`?** A `pipx` / `pip install --user`
+install puts `cableprobe` in `~/.local/bin`, which is not on root's `PATH`. Run
+it by absolute path (`sudo "$(which cableprobe)" check`), preserve your `PATH`
+(`sudo env "PATH=$PATH" cableprobe check`), or install it on root's `PATH` once
+with `sudo ./scripts/install.sh` (below) — that is the recommended setup for a
+test rig. The not-root warning now prints whichever of these applies to your
+install.
 
 ### Exit codes
 

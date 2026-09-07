@@ -69,11 +69,58 @@ def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
-def _sudo_hint(subcommand: str) -> str:
-    """A copy-pasteable sudo invocation for ``subcommand`` (with the same args)."""
+#: Directories on root's default ``secure_path`` (see ``sudo -V``). If the
+#: launcher lives here, a bare ``sudo cableprobe`` works; otherwise (pipx /
+#: ``pip install --user`` put it in ``~/.local/bin``) it does not.
+_ROOT_SECURE_PATH = (
+    "/usr/local/sbin",
+    "/usr/local/bin",
+    "/usr/sbin",
+    "/usr/bin",
+    "/sbin",
+    "/bin",
+    "/snap/bin",
+)
+
+
+def _launcher_path() -> Path | None:
+    """Absolute path to the installed ``cableprobe`` launcher script, if any.
+
+    Ignores ``sys.argv[0]`` when it is not actually the ``cableprobe`` console
+    script (e.g. ``python -m cableprobe.cli`` during development).
+    """
+
+    argv0 = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    candidates = []
+    if argv0 is not None and argv0.name == "cableprobe":
+        candidates.append(argv0)
+    candidates.append(Path(shutil.which("cableprobe")) if shutil.which("cableprobe") else None)
+    for path in candidates:
+        if path is not None and path.is_absolute() and path.exists():
+            return path
+    return None
+
+
+def _sudo_hints(subcommand: str) -> list[str]:
+    """Copy-pasteable ways to re-run ``subcommand`` as root, best first.
+
+    ``sudo`` resets ``PATH`` to a fixed ``secure_path``, so a bare
+    ``sudo cableprobe`` fails with "command not found" for the common pipx /
+    ``pip install --user`` layout. Detect that and offer commands that work.
+    """
 
     extra = " …" if subcommand == "run" else ""
-    return f"sudo {shlex.quote('cableprobe')} {subcommand}{extra}"
+    launcher = _launcher_path()
+    on_root_path = launcher is not None and str(launcher.parent) in _ROOT_SECURE_PATH
+
+    if on_root_path or launcher is None:
+        return [f"sudo cableprobe {subcommand}{extra}"]
+
+    return [
+        f"sudo {shlex.quote(str(launcher))} {subcommand}{extra}",
+        f'sudo env "PATH=$PATH" cableprobe {subcommand}{extra}',
+        "# permanent: put it on root's PATH once with  sudo ./scripts/install.sh",
+    ]
 
 
 def _advise_root(subcommand: str, *, interactive: bool) -> None:
@@ -87,6 +134,7 @@ def _advise_root(subcommand: str, *, interactive: bool) -> None:
     if _is_root():
         return
 
+    hint = "\n    ".join(_sudo_hints(subcommand))
     typer.secho("\n" + "=" * 70, fg="bright_black")
     typer.secho(
         "CableProbe is NOT running as root.\n"
@@ -94,7 +142,7 @@ def _advise_root(subcommand: str, *, interactive: bool) -> None:
         "keystroke-timing and raw-socket probes see much less detail, and some\n"
         "are skipped entirely. Running under sudo is strongly recommended.\n\n"
         "You can exit now and re-run as:\n\n"
-        f"    {_sudo_hint(subcommand)}",
+        f"    {hint}",
         fg="yellow",
         bold=True,
     )
@@ -284,7 +332,9 @@ def check(
             "keystroke-timing and raw-socket probes will see less or be skipped.",
             fg="yellow",
         )
-        typer.secho(f"  for a full check:  {_sudo_hint('check')}", fg="bright_black")
+        typer.secho("  for a full check, re-run as:", fg="bright_black")
+        for hint in _sudo_hints("check"):
+            typer.secho(f"    {hint}", fg="bright_black")
 
     raise typer.Exit(code=0 if all_ok else 1)
 

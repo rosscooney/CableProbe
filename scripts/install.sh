@@ -47,7 +47,10 @@ fi
 
 # --- OS packages ---------------------------------------------------------
 # CableProbe only *invokes* these as separate programs; it never links them.
-APT_PACKAGES="python3 python3-venv usbutils util-linux"
+#   usbutils  -> lsusb        util-linux -> lsblk
+#   iw        -> wifi_scan    pciutils   -> lspci (pci probe uses sysfs, but
+#                                          lspci is handy for cross-checking)
+APT_PACKAGES="python3 python3-venv usbutils util-linux iw pciutils"
 if command -v apt-get >/dev/null 2>&1; then
     log "installing OS helper packages: ${APT_PACKAGES}"
     export DEBIAN_FRONTEND=noninteractive

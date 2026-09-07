@@ -124,11 +124,37 @@ def test_run_warns_when_not_root_but_continues_in_auto(tmp_path, monkeypatch):
 
     monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
     monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    # launcher on root's PATH -> the plain hint
+    monkeypatch.setattr(
+        "cableprobe.cli._launcher_path", lambda: __import__("pathlib").Path("/usr/local/bin/cableprobe")
+    )
 
     result = runner.invoke(app, [*_run_args(tmp_path), "--auto"])
     assert result.exit_code == 0, result.output
     assert "NOT running as root" in result.output
     assert "sudo cableprobe run" in result.output
+
+
+def test_sudo_hints_for_user_local_install(monkeypatch):
+    from pathlib import Path
+
+    from cableprobe.cli import _sudo_hints
+
+    monkeypatch.setattr(
+        "cableprobe.cli._launcher_path", lambda: Path("/home/pi/.local/bin/cableprobe")
+    )
+    hints = _sudo_hints("check")
+    assert hints[0] == "sudo /home/pi/.local/bin/cableprobe check"
+    assert any('env "PATH=$PATH"' in h for h in hints)
+    assert any("scripts/install.sh" in h for h in hints)
+
+    monkeypatch.setattr(
+        "cableprobe.cli._launcher_path", lambda: Path("/usr/local/bin/cableprobe")
+    )
+    assert _sudo_hints("check") == ["sudo cableprobe check"]
+
+    monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: None)
+    assert _sudo_hints("run") == ["sudo cableprobe run …"]
 
 
 def test_run_interactive_aborts_when_operator_declines_sudo(tmp_path, monkeypatch):
@@ -169,7 +195,12 @@ def test_run_as_root_has_no_sudo_warning(tmp_path, monkeypatch):
 
 
 def test_check_mentions_sudo_when_not_root(monkeypatch):
+    from pathlib import Path
+
     monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    monkeypatch.setattr(
+        "cableprobe.cli._launcher_path", lambda: Path("/usr/local/bin/cableprobe")
+    )
     result = runner.invoke(app, ["check"])
     assert "not running as root" in result.output
     assert "sudo cableprobe check" in result.output
