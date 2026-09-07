@@ -54,10 +54,15 @@ therefore `cableprobe --version` and the session banner) is read from the
 installed package metadata at runtime, so it follows automatically — do not add
 a hardcoded version string back to `cableprobe/__init__.py`.
 
+Also move the changes you are releasing from `## [Unreleased]` into a new
+`## [0.3.8] - <date>` section in [`CHANGELOG.md`](CHANGELOG.md), and add the
+matching `[0.3.8]: …/compare/v0.3.7...v0.3.8` link at the bottom. The GitHub
+release notes are the same content.
+
 ```bash
 git checkout main && git pull
 git checkout -b release-0.3.8
-git commit -am "Bump version to 0.3.8"
+git commit -am "Bump version to 0.3.8, update changelog"
 git push -u origin release-0.3.8
 # open PR, merge to main
 ```

@@ -288,6 +288,7 @@ fake `/sys` tree — see `tests/test_probes_parsing.py` and
 `tests/test_probes_new.py`.
 
 The source lives at <https://github.com/rosscooney/CableProbe>. See
+[CHANGELOG.md](CHANGELOG.md) for what changed in each release,
 [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute,
 [SECURITY.md](SECURITY.md) for how to report vulnerabilities privately, and
 [RELEASING.md](RELEASING.md) for how maintainers cut a release to PyPI.

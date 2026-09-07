@@ -75,6 +75,7 @@ See [RELEASING.md](RELEASING.md) for the full step-by-step. In short:
 
 - [ ] `python -m build` → `twine check dist/*` passes
 - [ ] `pip install dist/*.whl` in a clean venv; `cableprobe --version` works
+- [ ] `CHANGELOG.md` has a dated section for this version
 - [ ] tag `v0.3.7`; publish to PyPI as `cableprobe`
 - [ ] confirm `CABLEPROBE_SRC` / install one-liner point at
       `github.com/rosscooney/CableProbe` (and PyPI once published)
