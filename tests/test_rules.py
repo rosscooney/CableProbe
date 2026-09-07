@@ -8,6 +8,7 @@ from cableprobe.models import (
     KIND_INPUT_DEVICE,
     KIND_KERNEL_MESSAGE,
     KIND_KERNEL_MODULE,
+    KIND_KEYSTROKE_TIMING,
     KIND_MOUNT,
     KIND_NETWORK_CONFIG,
     KIND_NETWORK_INTERFACE,
@@ -15,6 +16,7 @@ from cableprobe.models import (
     KIND_USB_DEVICE,
     KIND_USB_INTERFACE,
     KIND_USB_PD,
+    KIND_WIFI_AP,
     Delta,
 )
 from cableprobe.rules import RuleSet
@@ -39,6 +41,27 @@ def test_default_ruleset_loads():
     assert len(rs.rules) >= 10
     ids = {r.id for r in rs.rules}
     assert "hid-keyboard-appeared-on-connect" in ids
+
+
+def test_default_rules_reference_only_known_kinds_and_severities():
+    import cableprobe.models as m
+    from cableprobe.rules import SEVERITIES, _as_list
+
+    known_kinds = {
+        v for k, v in vars(m).items() if k.startswith("KIND_") and isinstance(v, str)
+    }
+    rs = RuleSet.default()
+    seen_ids = set()
+    for rule in rs.rules:
+        assert rule.id not in seen_ids, f"duplicate rule id {rule.id}"
+        seen_ids.add(rule.id)
+        assert rule.severity in SEVERITIES, f"{rule.id}: bad severity {rule.severity}"
+        for kind in _as_list(rule.match.kind) or []:
+            assert kind in known_kinds, f"{rule.id}: unknown kind {kind!r}"
+        for phase in _as_list(rule.match.first_seen_phase) or []:
+            assert phase in ("baseline", "test", "post_test")
+        for change in _as_list(rule.match.change) or []:
+            assert change in ("appeared", "disappeared", "modified")
 
 
 def test_keyboard_finding_is_high():
@@ -185,6 +208,35 @@ def test_removable_mount_rule_is_high():
     findings = rs.evaluate([_delta(KIND_MOUNT, "mount:/media/pi/USB")])
     hit = next(f for f in findings if f.rule_id == "removable-media-mounted-on-connect")
     assert hit.severity == "high"
+
+
+def test_strong_wifi_ap_rule_is_high_weak_is_low():
+    rs = RuleSet.default()
+    strong = _delta(KIND_WIFI_AP, "wifi:aa:bb:cc:dd:ee:ff", strong_signal="True")
+    ids = {f.rule_id: f.severity for f in rs.evaluate([strong])}
+    assert ids.get("strong-wifi-ap-appeared-on-connect") == "high"
+    assert ids.get("wifi-ap-appeared-on-connect") == "low"
+
+    weak = _delta(KIND_WIFI_AP, "wifi:11:22:33:44:55:66", strong_signal="False")
+    weak_ids = {f.rule_id for f in rs.evaluate([weak])}
+    assert "strong-wifi-ap-appeared-on-connect" not in weak_ids
+    assert "wifi-ap-appeared-on-connect" in weak_ids
+
+
+def test_keystroke_injection_is_critical():
+    rs = RuleSet.default()
+    injected = _delta(
+        KIND_KEYSTROKE_TIMING, "kbdtiming:event3", looks_injected="True"
+    )
+    findings = {f.rule_id: f.severity for f in rs.evaluate([injected])}
+    assert findings.get("keystroke-injection-detected") == "critical"
+    assert findings.get("keystrokes-during-test-phase") == "medium"
+
+    # typing at human speed during the test phase is still medium, not critical
+    human = _delta(KIND_KEYSTROKE_TIMING, "kbdtiming:event3", looks_injected="False")
+    human_ids = {f.rule_id for f in rs.evaluate([human])}
+    assert "keystroke-injection-detected" not in human_ids
+    assert "keystrokes-during-test-phase" in human_ids
 
 
 def test_custom_ruleset_from_yaml(tmp_path):

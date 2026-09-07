@@ -11,6 +11,7 @@ from cableprobe.probes.base import Probe
 from cableprobe.probes.block import BlockDeviceProbe
 from cableprobe.probes.input_devices import InputDeviceProbe
 from cableprobe.probes.kernel_log import KernelLogProbe
+from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe
 from cableprobe.probes.media_devices import AudioDeviceProbe, VideoDeviceProbe
 from cableprobe.probes.network import NetworkInterfaceProbe
 from cableprobe.probes.network_state import ListenerProbe, RoutingProbe
@@ -25,6 +26,7 @@ from cableprobe.probes.udev_monitor import UdevMonitorProbe
 from cableprobe.probes.usb import UsbProbe
 from cableprobe.probes.usb_sysfs import UsbDescriptorProbe, UsbTopologyProbe
 from cableprobe.probes.usbc_pd import UsbcPdProbe
+from cableprobe.probes.wifi_scan import WifiScanProbe
 
 log = get_logger("probe.registry")
 
@@ -45,6 +47,8 @@ _PROBE_CLASSES: tuple[type[Probe], ...] = (
     VideoDeviceProbe,
     PciDeviceProbe,
     KernelModuleProbe,
+    WifiScanProbe,
+    KeystrokeCadenceProbe,
     ProcessProbe,
     KernelLogProbe,
 )

@@ -88,6 +88,12 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
         )
     )
 
+    if meta.probes_unavailable:
+        names = ", ".join(w.split(":", 1)[0] for w in meta.probes_unavailable)
+        console.print(
+            f"[dim]Probes skipped (interface not present on this host): {names}[/dim]"
+        )
+
     if meta.probe_warnings:
         console.print("[yellow]Probe warnings:[/yellow]")
         for warning in meta.probe_warnings:
@@ -160,6 +166,9 @@ def _plain_summary(report: SessionReport) -> list[str]:
         f"  ended:    {meta.ended_at.isoformat()}",
         f"  probes:   {', '.join(meta.probes_used) or '(none)'}",
     ]
+    if meta.probes_unavailable:
+        names = ", ".join(w.split(":", 1)[0] for w in meta.probes_unavailable)
+        lines.append(f"  skipped:  {names} (interface not present on this host)")
     for warning in meta.probe_warnings:
         lines.append(f"  warning:  {warning}")
 

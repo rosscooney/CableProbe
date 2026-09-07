@@ -178,10 +178,10 @@ def _decode_proc_net_address(hex_addr: str, *, ipv6: bool) -> str:
                 packed[i : i + 4][::-1] for i in range(0, len(packed), 4)
             )
             ip = socket.inet_ntop(socket.AF_INET6, packed)
-        else:
-            ip = socket.inet_ntoa(struct.pack("<L", int(addr, 16)))
+            return f"[{ip}]:{port_num}"
+        ip = socket.inet_ntoa(struct.pack("<L", int(addr, 16)))
     except (ValueError, OSError):
-        ip = addr
+        return hex_addr
     return f"{ip}:{port_num}"
 
 

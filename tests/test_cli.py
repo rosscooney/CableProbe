@@ -109,3 +109,67 @@ def test_run_rejects_bad_config(tmp_path):
     bad.write_text("session: {test_seconds: -5}\n", encoding="utf-8")
     result = runner.invoke(app, ["run", "--auto", "--config", str(bad)])
     assert result.exit_code == 2
+
+
+def _run_args(tmp_path):
+    return [
+        "run", "--baseline", "1", "--test", "1", "--post-test", "1",
+        "--output-dir", str(tmp_path), "--name", "clitest",
+    ]
+
+
+def test_run_warns_when_not_root_but_continues_in_auto(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+
+    result = runner.invoke(app, [*_run_args(tmp_path), "--auto"])
+    assert result.exit_code == 0, result.output
+    assert "NOT running as root" in result.output
+    assert "sudo cableprobe run" in result.output
+
+
+def test_run_interactive_aborts_when_operator_declines_sudo(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+
+    result = runner.invoke(app, _run_args(tmp_path), input="n\n")
+    assert result.exit_code == 1
+    assert "re-run with sudo" in result.output
+    assert not list(tmp_path.glob("*.cableprobe.json"))
+
+
+def test_run_interactive_continues_when_operator_accepts(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+
+    result = runner.invoke(app, _run_args(tmp_path), input="y\n")
+    assert result.exit_code == 0, result.output
+    assert len(list(tmp_path.glob("*.cableprobe.json"))) == 1
+
+
+def test_run_as_root_has_no_sudo_warning(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+
+    result = runner.invoke(app, [*_run_args(tmp_path), "--auto"])
+    assert result.exit_code == 0, result.output
+    assert "NOT running as root" not in result.output
+
+
+def test_check_mentions_sudo_when_not_root(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    result = runner.invoke(app, ["check"])
+    assert "not running as root" in result.output
+    assert "sudo cableprobe check" in result.output

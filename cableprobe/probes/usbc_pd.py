@@ -173,4 +173,4 @@ class UsbcPdProbe(Probe):
         return ProbeAvailability(ok=True, detail=f"{len(ports)} Type-C node(s)")
 
     def snapshot(self) -> list[Observation]:
-        return scan_typec()
+        return scan_typec(SYS_CLASS_TYPEC)

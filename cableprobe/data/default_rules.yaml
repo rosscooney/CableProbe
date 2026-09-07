@@ -12,7 +12,7 @@
 #                          network_config | listening_socket | input_device |
 #                          hid_device | serial_device | audio_device |
 #                          video_device | pci_device | kernel_module |
-#                          process | kernel_message
+#                          wifi_ap | keystroke_timing | process | kernel_message
 #   first_seen_phase:      baseline | test | post_test
 #   reverted_after_disconnect: true | false
 #   transient:             true | false   (seen only via a udev event)
@@ -492,3 +492,61 @@ rules:
       change: appeared
       first_seen_phase: test
       kind: listening_socket
+
+  # --- Wi-Fi (wifi_scan probe) --------------------------
+
+  - id: strong-wifi-ap-appeared-on-connect
+    title: A strong Wi-Fi access point appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      Several cable implants carry their own radio and bring up a Wi-Fi AP for
+      out-of-band control. An AP that was not in range at baseline and appears
+      with a strong signal on connect may be inside the cable or connector.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: wifi_ap
+      attributes:
+        all:
+          - { key: strong_signal, equals: "True" }
+
+  - id: wifi-ap-appeared-on-connect
+    title: A new Wi-Fi access point came into range while the cable was connected
+    severity: low
+    rationale: >
+      Lower-confidence: neighbouring networks drift in and out of scan range on
+      their own. Correlate the BSSID and signal with the cable and the location.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: wifi_ap
+
+  # --- keystroke cadence (keystroke_cadence probe) --------------------------
+
+  - id: keystroke-injection-detected
+    title: Key presses with superhuman speed or machine regularity during the test phase
+    severity: critical
+    rationale: >
+      The keystroke timing on an input device matches automated injection -
+      either far faster than a human can type, or with a near-zero variation in
+      the interval between keys. This is the behavioural signature of a BadUSB
+      payload running.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: keystroke_timing
+      attributes:
+        all:
+          - { key: looks_injected, equals: "True" }
+
+  - id: keystrokes-during-test-phase
+    title: Key presses were recorded during the test phase
+    severity: medium
+    rationale: >
+      The operator should not be typing during the test window. Key-down events
+      on any input device while the cable was connected - even at human speed -
+      mean either the operator touched the keyboard or something else did.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: keystroke_timing

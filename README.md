@@ -61,12 +61,28 @@ differences to produce prioritised findings.
 | `video`           | video4linux camera / capture devices, including UVC.                             |
 | `pci`             | PCI and Thunderbolt devices (USB4/TBT PCIe-tunnel / DMA surface).                |
 | `kernel_modules`  | Loaded kernel modules — catches gadget drivers loaded on connect.                |
+| `wifi_scan`       | Wi-Fi APs in range (an implant cable may run its own AP). Active scan, boundary-only. |
+| `keystroke_cadence` | Key-press *timing* per input device — flags superhuman / robotic typing.       |
 | `process`         | Processes started after the session began.                                       |
 | `kernel_log`      | USB-relevant kernel / journal lines emitted during the session.                  |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
-Type-C class, no `/sys/bus/pci`, …) report themselves unavailable in
-`cableprobe check` and are skipped — that is not an error.
+Type-C class, no `/sys/bus/pci`, …) are skipped automatically. `cableprobe
+check` lists them as `FAIL` with the reason, and a run notes them once as
+`skipped: … (interface not present on this host)` — that is expected, not an
+error. Raspberry Pi 4, for example, has no `usbc_pd` (its USB-C port is
+power-only); Raspberry Pi 5 does. To silence a skip entirely, drop the probe
+from `probes.enabled` in your config.
+
+Two probes have side effects worth knowing about:
+
+- `wifi_scan` runs an **active** Wi-Fi scan (`iw` / `nmcli`) at each phase
+  boundary, which briefly interrupts any Wi-Fi association on that interface. It
+  never associates with a discovered AP.
+- `keystroke_cadence` reads `/dev/input/event*` for key-press **timing only** —
+  the key `code` of every event is discarded before anything is stored, so it
+  never learns which keys were pressed. Set `capture_keystroke_timing: false`
+  to disable it.
 
 ## Install
 
@@ -95,6 +111,41 @@ CableProbe ships the recipe, not a prebuilt image.
 hosts CableProbe still installs and its `--help` / `check` / `report` commands
 work, but the live probes are unavailable.
 
+## Upgrading
+
+```bash
+# 1a. pipx — to the latest *published* release on PyPI
+pipx upgrade cableprobe
+pipx upgrade-all                          # everything pipx manages
+pipx install --force cableprobe==0.3.1    # pin / roll back to a specific release
+
+# 1b. pipx — to the latest development code (main), ahead of the last release
+pipx install --force "git+https://github.com/rosscooney/CableProbe"
+pipx install --force "cableprobe @ git+https://github.com/rosscooney/CableProbe@main"
+
+# 2. scripts/install.sh — re-run against a fresh checkout; reinstalls
+#    into /opt/cableprobe/venv in place
+git -C cableprobe pull && sudo ./cableprobe/scripts/install.sh
+
+# 3. development checkout
+git pull && pip install -e ".[dev]"
+```
+
+Check what you have and that the host is still ready afterwards:
+
+```bash
+cableprobe --version
+cableprobe check
+```
+
+`pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
+`cableprobe is already at latest version 0.3.1` means there is no newer release
+— publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
+use the `git+https://…` form above to track `main`. If a new version drops a
+probe or changes report fields it is called out in the GitHub release notes;
+saved `.cableprobe.json` reports from older versions still open with
+`cableprobe report`.
+
 ## Usage
 
 ```bash
@@ -117,8 +168,11 @@ cableprobe rules
 cableprobe rules my-rules.yaml
 ```
 
-Running with `sudo` is recommended: the kernel-log and udev-attribute probes
-see more detail with privileges.
+Running with `sudo` is strongly recommended: without root the kernel-log,
+udev-attribute, USB-descriptor, keystroke-timing and raw-socket probes see much
+less detail and some are skipped entirely. `cableprobe run` detects this and, in
+interactive mode, prints the `sudo` command and asks whether to continue anyway;
+`--auto` just warns and proceeds. `cableprobe check` flags it too.
 
 ### Exit codes
 
@@ -140,10 +194,11 @@ probes:
   # default: all probes; list a subset to narrow the session
   enabled: [udev_monitor, usb, usb_descriptors, usb_topology, usbc_pd, block,
             mounts, network, routing, listeners, input, serial, audio, video,
-            pci, kernel_modules, process, kernel_log]
+            pci, kernel_modules, wifi_scan, keystroke_cadence, process, kernel_log]
   kernel_log_backend: auto        # auto | journalctl | dmesg
   kernel_log_keywords: []         # extra case-insensitive substrings to keep
   capture_process_cmdline: true   # false => store only the executable name
+  capture_keystroke_timing: true  # false => disable the keystroke_cadence probe
 rules_file: null                  # null => packaged default rules
 output_dir: ./cableprobe-sessions
 ```
@@ -213,10 +268,13 @@ The source lives at <https://github.com/rosscooney/CableProbe>. See
 [SECURITY.md](SECURITY.md) for how to report vulnerabilities privately, and
 [RELEASING.md](RELEASING.md) for how maintainers cut a release to PyPI.
 
-## Scope / non-goals for v0.1
+## Scope / non-goals
 
 * CLI only — no web dashboard.
-* No cable electrical / PD (power-delivery) analysis yet.
+* The `usbc_pd` probe reads the kernel's USB-C / Power Delivery port state
+  (data/power roles, alternate modes); CableProbe does **not** do electrical
+  measurement of the cable itself — no voltage/current sampling, no e-marker
+  interrogation.
 * No offensive capability of any kind, by design.
 
 ## Third-party dependencies

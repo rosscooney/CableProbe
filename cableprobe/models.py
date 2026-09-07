@@ -43,6 +43,8 @@ KIND_VIDEO_DEVICE = "video_device"
 KIND_PCI_DEVICE = "pci_device"
 KIND_KERNEL_MODULE = "kernel_module"
 KIND_MOUNT = "mount"
+KIND_WIFI_AP = "wifi_ap"
+KIND_KEYSTROKE_TIMING = "keystroke_timing"
 KIND_PROCESS = "process"
 KIND_KERNEL_MESSAGE = "kernel_message"
 
@@ -167,6 +169,10 @@ class SessionMetadata(BaseModel):
     host: dict[str, Any] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
     probes_used: list[str] = Field(default_factory=list)
+    #: Probes skipped because the host does not expose the needed interface
+    #: (no Type-C class, no /sys/bus/pci, ...). Expected, not a problem.
+    probes_unavailable: list[str] = Field(default_factory=list)
+    #: Probes that were enabled and available but misbehaved (failed to start).
     probe_warnings: list[str] = Field(default_factory=list)
 
 

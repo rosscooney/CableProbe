@@ -31,6 +31,7 @@ def _report(phase_builder) -> SessionReport:
         host={"node": "testpi"},
         config={},
         probes_used=["usb", "input"],
+        probes_unavailable=["usbc_pd: /sys/class/typec not present", "pci: no bus"],
     )
     return SessionReport(
         metadata=meta, phases=phases, deltas=deltas, findings=findings, summary=summary
@@ -86,6 +87,18 @@ def test_render_summary_plain(phase_builder, capsys):
     assert "CableProbe session report" in text
     assert "Evil KB" in text
     assert "HID keyboard appeared" in text
+
+
+def test_unavailable_probes_roundtrip_and_render(tmp_path, phase_builder, capsys):
+    report = _report(phase_builder)
+    loaded = load_report(write_report(report, tmp_path))
+    assert loaded.metadata.probes_unavailable == report.metadata.probes_unavailable
+
+    plain = render_summary(report, plain=True)
+    assert "skipped:  usbc_pd, pci" in plain
+
+    render_summary(report)  # rich path must not raise and names the skipped probes
+    assert "usbc_pd, pci" in capsys.readouterr().out
 
 
 def test_summary_has_expected_keys(phase_builder):

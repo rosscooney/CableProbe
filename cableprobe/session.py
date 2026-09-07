@@ -133,21 +133,37 @@ async def _observe_phase(
     )
 
 
-async def _start_probes(probes: list[Probe]) -> list[str]:
+async def _start_probes(
+    probes: list[Probe],
+) -> tuple[list[Probe], list[str], list[str]]:
+    """Start the probes that can run on this host.
+
+    Returns ``(active_probes, unavailable_notes, warnings)``. A probe whose
+    ``availability()`` is not ``ok`` is dropped (it would only contribute empty
+    snapshots or per-tick errors); that is an expected condition on hosts that
+    do not expose a given interface, so it is reported separately from real
+    failures.
+    """
+
+    active: list[Probe] = []
+    unavailable: list[str] = []
     warnings: list[str] = []
     for probe in probes:
         availability = probe.availability()
         if not availability.ok:
-            msg = f"{probe.name}: unavailable ({availability.detail})"
-            log.warning(msg)
-            warnings.append(msg)
+            msg = f"{probe.name}: {availability.detail}"
+            log.info("probe %s unavailable on this host: %s", probe.name, availability.detail)
+            unavailable.append(msg)
+            continue
         try:
             await probe.start()
         except Exception as exc:  # noqa: BLE001
             msg = f"{probe.name}: failed to start ({exc})"
             log.warning(msg)
             warnings.append(msg)
-    return warnings
+            continue
+        active.append(probe)
+    return active, unavailable, warnings
 
 
 async def _stop_probes(probes: list[Probe]) -> None:
@@ -171,12 +187,21 @@ async def run_session(
 
     session_start = time.time()
     started_at = utcnow()
-    probes = build_probes(config, session_start)
-    if not probes:
+    configured = build_probes(config, session_start)
+    if not configured:
         raise RuntimeError("no probes enabled - nothing to observe")
 
-    log.info("starting session %r with probes: %s", session_name, [p.name for p in probes])
-    warnings = await _start_probes(probes)
+    log.info(
+        "starting session %r with probes: %s",
+        session_name,
+        [p.name for p in configured],
+    )
+    probes, unavailable, warnings = await _start_probes(configured)
+    if not probes:
+        raise RuntimeError(
+            "no enabled probe can run on this host - nothing to observe "
+            f"(unavailable: {'; '.join(unavailable) or 'none'})"
+        )
 
     phases: dict[str, PhaseObservation] = {}
     durations = {
@@ -216,6 +241,7 @@ async def run_session(
         host=collect_host_info(),
         config=config.as_metadata(),
         probes_used=[p.name for p in probes],
+        probes_unavailable=unavailable,
         probe_warnings=warnings,
     )
 

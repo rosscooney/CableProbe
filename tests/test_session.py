@@ -7,7 +7,7 @@ import pytest
 
 from cableprobe.config import Config
 from cableprobe.models import KIND_INPUT_DEVICE, Observation
-from cableprobe.probes.base import Probe
+from cableprobe.probes.base import Probe, ProbeAvailability
 from cableprobe.rules import RuleSet
 from cableprobe.session import run_session
 
@@ -90,6 +90,93 @@ async def test_run_session_requires_probes(fast_config, monkeypatch):
         await run_session(
             fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
         )
+
+
+async def test_unavailable_probe_is_skipped_not_warned(fast_config, monkeypatch):
+    kb = Observation(kind=KIND_INPUT_DEVICE, identity="input:x", label="kb")
+    working = FakeProbe(fast_config, 0.0, [[]] * 3 + [[kb]] * 3 + [[]] * 3)
+
+    class NoTypeC(Probe):
+        name = "usbc_pd"
+
+        def availability(self):
+            return ProbeAvailability(ok=False, detail="/sys/class/typec not present")
+
+        def snapshot(self):
+            raise AssertionError("unavailable probe should not be snapshotted")
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [NoTypeC(fast_config, 0.0), working],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert report.metadata.probes_used == ["fake"]
+    assert report.metadata.probe_warnings == []
+    assert any("usbc_pd" in u for u in report.metadata.probes_unavailable)
+
+
+async def test_run_session_all_probes_unavailable(fast_config, monkeypatch):
+    class Dead(Probe):
+        name = "dead"
+
+        def availability(self):
+            return ProbeAvailability(ok=False, detail="nope")
+
+        def snapshot(self):
+            return []
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [Dead(fast_config, 0.0)],
+    )
+    with pytest.raises(RuntimeError, match="no enabled probe can run"):
+        await run_session(
+            fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+        )
+
+
+async def test_new_signals_flow_through_to_findings(fast_config, monkeypatch):
+    from cableprobe.models import (
+        KIND_KEYSTROKE_TIMING,
+        KIND_PCI_DEVICE,
+        KIND_USB_INTERFACE,
+    )
+
+    appeared = [
+        Observation(
+            kind=KIND_PCI_DEVICE,
+            identity="pci:0000:00:1c.4",
+            label="PCI device tunnelled in",
+        ),
+        Observation(
+            kind=KIND_USB_INTERFACE,
+            identity="usbif:dead:beef:x:00",
+            label="hid interface #00",
+            attributes={"interface_class_name": "hid"},
+        ),
+        Observation(
+            kind=KIND_KEYSTROKE_TIMING,
+            identity="kbdtiming:event5",
+            label="key-press timing — LOOKS INJECTED",
+            attributes={"looks_injected": True, "keystrokes": 200},
+        ),
+    ]
+    script = [[]] * 3 + [list(appeared)] * 3 + [[]] * 3
+    fake = FakeProbe(fast_config, 0.0, script)
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes", lambda config, session_start: [fake]
+    )
+
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    by_rule = {f.rule_id: f.severity for f in report.findings}
+    assert by_rule.get("pci-device-appeared-on-connect") == "critical"
+    assert by_rule.get("hid-interface-appeared-on-connect") == "high"
+    assert by_rule.get("keystroke-injection-detected") == "critical"
+    assert report.summary["highest_severity"] == "critical"
 
 
 async def test_probe_snapshot_failure_is_recorded(fast_config, monkeypatch):

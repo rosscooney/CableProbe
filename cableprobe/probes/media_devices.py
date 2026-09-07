@@ -227,4 +227,4 @@ class VideoDeviceProbe(Probe):
                     return out
             except Exception as exc:  # noqa: BLE001  # pragma: no cover
                 log.warning("pyudev v4l enumeration failed (%s); trying sysfs", exc)
-        return scan_sysfs_v4l()
+        return scan_sysfs_v4l(SYS_CLASS_V4L)

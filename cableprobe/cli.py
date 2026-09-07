@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shlex
 import shutil
 import sys
 import time
@@ -61,6 +63,52 @@ def _load_config(config_path: Optional[Path]) -> Config:
     except Exception as exc:  # noqa: BLE001
         typer.secho(f"error: could not load config: {exc}", fg="red", err=True)
         raise typer.Exit(code=2) from exc
+
+
+def _is_root() -> bool:
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _sudo_hint(subcommand: str) -> str:
+    """A copy-pasteable sudo invocation for ``subcommand`` (with the same args)."""
+
+    extra = " …" if subcommand == "run" else ""
+    return f"sudo {shlex.quote('cableprobe')} {subcommand}{extra}"
+
+
+def _advise_root(subcommand: str, *, interactive: bool) -> None:
+    """If not running as root, tell the operator and let them bail out.
+
+    Several probes (kernel log, udev attributes, USB descriptors, keystroke
+    timing, raw sockets) see much less without privileges, and some are skipped
+    entirely, so running under ``sudo`` is strongly recommended.
+    """
+
+    if _is_root():
+        return
+
+    typer.secho("\n" + "=" * 70, fg="bright_black")
+    typer.secho(
+        "CableProbe is NOT running as root.\n"
+        "Without privileges the kernel-log, udev-attribute, USB-descriptor,\n"
+        "keystroke-timing and raw-socket probes see much less detail, and some\n"
+        "are skipped entirely. Running under sudo is strongly recommended.\n\n"
+        "You can exit now and re-run as:\n\n"
+        f"    {_sudo_hint(subcommand)}",
+        fg="yellow",
+        bold=True,
+    )
+    typer.secho("=" * 70, fg="bright_black")
+
+    if not interactive:
+        typer.secho("(--auto: continuing without root)", fg="bright_black")
+        return
+    try:
+        if not typer.confirm("Continue without sudo?", default=True):
+            typer.secho("aborted - re-run with sudo.", fg="red")
+            raise typer.Exit(code=1)
+    except typer.Abort:  # Ctrl-C / Ctrl-D at the prompt
+        raise typer.Exit(code=1) from None
 
 
 def _operator_prompt(phase: str, message: str) -> None:
@@ -148,6 +196,8 @@ def run(
         f"(sample every {cfg.session.sample_interval_seconds}s)"
     )
 
+    _advise_root("run", interactive=cfg.session.interactive)
+
     try:
         report = asyncio.run(
             run_session(
@@ -194,7 +244,9 @@ def check(
     typer.echo(f"  root:        {host.get('running_as_root')}")
 
     typer.secho("\nExternal tools", fg="cyan", bold=True)
-    for tool in ("lsusb", "lsblk", "journalctl", "dmesg", "udevadm", "ss", "lspci"):
+    for tool in (
+        "lsusb", "lsblk", "journalctl", "dmesg", "udevadm", "ss", "lspci", "iw", "nmcli"
+    ):
         present = shutil.which(tool) is not None
         mark = "ok " if present else "MISSING"
         typer.secho(f"  {mark:8}{tool}", fg="green" if present else "yellow")
@@ -226,11 +278,13 @@ def check(
         typer.secho(f"\noutput dir NOT writable: {cfg.output_dir} ({exc})", fg="red")
         all_ok = False
 
-    if not host.get("running_as_root"):
+    if not _is_root():
         typer.secho(
-            "\nnote: some probes see more detail when run with sudo (kernel log, udev attrs).",
-            fg="bright_black",
+            "\nnot running as root: kernel-log, udev-attribute, USB-descriptor, "
+            "keystroke-timing and raw-socket probes will see less or be skipped.",
+            fg="yellow",
         )
+        typer.secho(f"  for a full check:  {_sudo_hint('check')}", fg="bright_black")
 
     raise typer.Exit(code=0 if all_ok else 1)
 

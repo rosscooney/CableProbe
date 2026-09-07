@@ -12,4 +12,11 @@ correlation with the cable being connected.
 This is a *defensive* observation tool. It only watches, records and reports.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    __version__ = _pkg_version("cableprobe")
+except PackageNotFoundError:  # running from a source tree that isn't installed
+    __version__ = "0.0.0+dev"
+
+__all__ = ["__version__"]

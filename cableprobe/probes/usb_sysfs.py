@@ -226,7 +226,7 @@ class UsbDescriptorProbe(Probe):
         return ProbeAvailability(ok=False, detail=f"{SYS_BUS_USB_DEVICES} not present")
 
     def snapshot(self) -> list[Observation]:
-        return descriptor_observations(scan_usb_sysfs())
+        return descriptor_observations(scan_usb_sysfs(SYS_BUS_USB_DEVICES))
 
 
 # --------------------------------------------------------------------------
@@ -292,4 +292,4 @@ class UsbTopologyProbe(Probe):
         return ProbeAvailability(ok=False, detail=f"{SYS_BUS_USB_DEVICES} not present")
 
     def snapshot(self) -> list[Observation]:
-        return topology_observations(scan_usb_sysfs())
+        return topology_observations(scan_usb_sysfs(SYS_BUS_USB_DEVICES))

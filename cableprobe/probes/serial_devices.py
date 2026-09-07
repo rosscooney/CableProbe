@@ -141,4 +141,4 @@ class SerialDeviceProbe(Probe):
                 return out
             except Exception as exc:  # noqa: BLE001  # pragma: no cover
                 log.warning("pyudev tty enumeration failed (%s); trying sysfs", exc)
-        return scan_sysfs_tty()
+        return scan_sysfs_tty(SYS_CLASS_TTY)

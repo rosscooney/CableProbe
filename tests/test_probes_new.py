@@ -9,9 +9,15 @@ exercised here without touching real hardware, mirroring test_probes_parsing.py.
 
 from __future__ import annotations
 
+import struct
+
+import pytest
+
+from cableprobe.config import Config
 from cableprobe.models import (
     KIND_AUDIO_DEVICE,
     KIND_KERNEL_MODULE,
+    KIND_KEYSTROKE_TIMING,
     KIND_LISTENING_SOCKET,
     KIND_MOUNT,
     KIND_NETWORK_CONFIG,
@@ -21,28 +27,68 @@ from cableprobe.models import (
     KIND_USB_PD,
     KIND_USB_TOPOLOGY,
     KIND_VIDEO_DEVICE,
+    KIND_WIFI_AP,
 )
-from cableprobe.probes.media_devices import parse_asound_cards, scan_sysfs_v4l
+from cableprobe.probes import media_devices, serial_devices, system_state, usb_sysfs
+from cableprobe.probes.keystroke_cadence import (
+    parse_key_down_timestamps,
+    summarise_cadence,
+)
+from cableprobe.probes.media_devices import (
+    AudioDeviceProbe,
+    VideoDeviceProbe,
+    _video_from_udev,
+    parse_asound_cards,
+    scan_sysfs_v4l,
+)
 from cableprobe.probes.network_state import (
     _decode_le_ipv4,
+    _decode_proc_net_address,
     annotate_with_ss,
     build_network_config_observations,
     parse_proc_net_route,
     parse_proc_net_tcp,
     parse_resolv_conf,
 )
-from cableprobe.probes.serial_devices import scan_sysfs_tty
+from cableprobe.probes.serial_devices import (
+    SerialDeviceProbe,
+    _observation_from_udev,
+    scan_sysfs_tty,
+)
 from cableprobe.probes.system_state import (
+    MountProbe,
+    PciDeviceProbe,
     parse_proc_modules,
     parse_proc_mounts,
     scan_pci_sysfs,
 )
 from cableprobe.probes.usb_sysfs import (
+    UsbDescriptorProbe,
+    _class_name,
+    _depth,
+    _is_root_hub,
     descriptor_observations,
     scan_usb_sysfs,
     topology_observations,
 )
 from cableprobe.probes.usbc_pd import _role, scan_typec
+from cableprobe.probes.wifi_scan import parse_iw_scan, parse_nmcli_wifi
+
+
+_CFG = Config()
+
+
+class FakeUdevDevice:
+    """Minimal stand-in for a pyudev.Device: a property dict plus a few attrs."""
+
+    def __init__(self, props: dict, *, sys_name="dev0", driver=None, parent=object()):
+        self._props = props
+        self.sys_name = sys_name
+        self.driver = driver
+        self.parent = parent
+
+    def get(self, key, default=None):
+        return self._props.get(key, default)
 
 
 # --------------------------------------------------------------------------
@@ -367,3 +413,401 @@ def test_annotate_with_ss():
     annotate_with_ss(out, ss)
     ssh = next(o for o in out if o.attributes["endpoint"] == "0.0.0.0:22")
     assert "sshd" in ssh.attributes["process"]
+
+
+PROC_NET_TCP6_SAMPLE = """\
+  sl  local_address                         remote_address                        st ... uid ... inode
+   0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 700 1 0000 100 0 0 10 0
+   1: 0000000000000000FFFF00000100007F:1F90 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 800 1 0000 100 0 0 10 0
+"""
+
+
+def test_parse_proc_net_tcp6_ipv6_decode():
+    out = parse_proc_net_tcp(PROC_NET_TCP6_SAMPLE, ipv6=True)
+    ids = {o.identity for o in out}
+    assert "listen:tcp6:[::]:80" in ids
+    port80 = next(o for o in out if o.attributes["endpoint"] == "[::]:80")
+    assert port80.attributes["protocol"] == "tcp6"
+
+
+def test_decode_proc_net_address_edges():
+    assert _decode_proc_net_address("0100007F:0016", ipv6=False) == "127.0.0.1:22"
+    # malformed -> returned unchanged rather than raising
+    assert _decode_proc_net_address("zzzz", ipv6=False) == "zzzz"
+
+
+def test_decode_le_ipv4_bad_input_is_returned_unchanged():
+    assert _decode_le_ipv4("not-hex") == "not-hex"
+
+
+# --------------------------------------------------------------------------
+# parser edge cases
+# --------------------------------------------------------------------------
+
+
+def test_parse_proc_modules_permanent_and_short_lines():
+    text = (
+        "ipv6 610304 28 [permanent], Live 0xffffffffc0400000\n"
+        "brokenline\n"
+        "\n"
+        "spidev 20480 0 - Live 0xffffffffc02c0000\n"
+    )
+    out = parse_proc_modules(text)
+    names = {o.attributes["name"] for o in out}
+    assert names == {"ipv6", "spidev"}
+    ipv6 = next(o for o in out if o.attributes["name"] == "ipv6")
+    assert ipv6.attributes["used_by"] == ["[permanent]"]
+    assert ipv6.attributes["refcount"] == 28
+
+
+def test_parse_proc_mounts_escaped_spaces_and_short_lines():
+    text = (
+        "/dev/sda1 /media/pi/My\\040Disk vfat rw 0 0\n"
+        "junk line here\n"
+        "/dev/sda2 /mnt/x ext4 ro,noatime 0 0\n"
+    )
+    out = parse_proc_mounts(text)
+    ids = {o.identity for o in out}
+    assert ids == {"mount:/media/pi/My Disk", "mount:/mnt/x"}
+    ro = next(o for o in out if o.identity == "mount:/mnt/x")
+    assert ro.attributes["read_only"] is True
+
+
+def test_scan_pci_sysfs_missing_files_and_no_driver(tmp_path):
+    pci = tmp_path / "pci"
+    slot = pci / "0000:00:00.0"
+    slot.mkdir(parents=True)  # a slot dir with no vendor/device/class/driver
+    out = scan_pci_sysfs(str(pci), str(tmp_path / "no-thunderbolt"))
+    assert len(out) == 1
+    assert out[0].identity == "pci:0000:00:00.0"
+    assert out[0].attributes["driver"] is None
+    assert out[0].attributes["vendor_id"] == ""
+
+
+def test_usb_sysfs_small_helpers():
+    assert _is_root_hub("usb1") is True
+    assert _is_root_hub("1-1") is False
+    assert _depth("usb1") == 0
+    assert _depth("1-1") == 1
+    assert _depth("1-1.4.2") == 3
+    assert _class_name("3") == "hid"
+    assert _class_name("09") == "hub"
+    assert _class_name(None) is None
+    assert _class_name("7a") == "7a"  # unknown code passes through
+
+
+def test_scan_typec_port_alt_mode_and_inactive(tmp_path):
+    tc = tmp_path / "typec"
+    _w(tc / "port0" / "data_role", "[host]")
+    # a port-level alt mode that is NOT active
+    _w(tc / "port0" / "port0.0" / "svid", "ff01")
+    _w(tc / "port0" / "port0.0" / "active", "no")
+    out = scan_typec(str(tc))
+    port = next(o for o in out if o.identity == "typec:port0")
+    assert port.attributes["port_alt_modes"] == ["port0.0"]
+    # port0.0 must not be mistaken for its own port
+    assert "typec:port0.0" not in {o.identity for o in out}
+
+
+# --------------------------------------------------------------------------
+# Wi-Fi scan parsers
+# --------------------------------------------------------------------------
+
+
+IW_SCAN_SAMPLE = """\
+BSS aa:bb:cc:dd:ee:ff(on wlan0) -- associated
+\tfreq: 2437
+\tsignal: -42.00 dBm
+\tSSID: HomeNet
+BSS 11:22:33:44:55:66(on wlan0)
+\tfreq: 5180
+\tsignal: -78.00 dBm
+\tSSID: FarAway
+BSS de:ad:be:ef:00:01(on wlan0)
+\tfreq: 2412
+\tsignal: -30.00 dBm
+\tSSID:\x20
+"""
+
+
+def test_parse_iw_scan():
+    out = parse_iw_scan(IW_SCAN_SAMPLE, interface="wlan0")
+    by_bssid = {o.attributes["bssid"]: o for o in out}
+    assert set(by_bssid) == {
+        "aa:bb:cc:dd:ee:ff",
+        "11:22:33:44:55:66",
+        "de:ad:be:ef:00:01",
+    }
+    home = by_bssid["aa:bb:cc:dd:ee:ff"]
+    assert home.kind == KIND_WIFI_AP
+    assert home.attributes["ssid"] == "HomeNet"
+    assert home.attributes["signal_dbm"] == -42.0
+    assert home.attributes["channel"] == 6
+    assert home.attributes["associated"] is True
+    assert home.attributes["strong_signal"] is True
+
+    far = by_bssid["11:22:33:44:55:66"]
+    assert far.attributes["strong_signal"] is False
+    assert far.attributes["channel"] == 36
+
+    hidden = by_bssid["de:ad:be:ef:00:01"]
+    assert hidden.attributes["ssid"] == "<hidden>"
+    assert hidden.attributes["strong_signal"] is True  # -30 dBm, right next to the host
+
+
+def test_parse_nmcli_wifi_escaped_bssid_and_signal():
+    text = (
+        r"AA\:BB\:CC\:DD\:EE\:FF:HomeNet:6:2437 MHz:88:*"
+        + "\n"
+        + r"11\:22\:33\:44\:55\:66:Neighbour:36:5180 MHz:30:"
+        + "\n"
+    )
+    out = parse_nmcli_wifi(text, interface="wlan0")
+    by_bssid = {o.attributes["bssid"]: o for o in out}
+    home = by_bssid["aa:bb:cc:dd:ee:ff"]
+    assert home.attributes["ssid"] == "HomeNet"
+    assert home.attributes["channel"] == 6
+    assert home.attributes["associated"] is True
+    # quality 88 -> ~ -56 dBm ; quality 30 -> -85 dBm
+    assert home.attributes["signal_dbm"] == -56.0
+    assert by_bssid["11:22:33:44:55:66"].attributes["strong_signal"] is False
+
+
+# --------------------------------------------------------------------------
+# keystroke cadence
+# --------------------------------------------------------------------------
+
+
+def _input_event_bytes(events: list[tuple[float, int, int, int]]) -> bytes:
+    """events: (timestamp_seconds, type, code, value)."""
+
+    fmt = "llHHi"
+    out = b""
+    for ts, etype, code, value in events:
+        sec = int(ts)
+        usec = int(round((ts - sec) * 1_000_000))
+        out += struct.pack(fmt, sec, usec, etype, code, value)
+    return out
+
+
+def test_parse_key_down_timestamps_filters_type_and_value():
+    raw = _input_event_bytes(
+        [
+            (10.000, 1, 30, 1),  # EV_KEY 'a' press   -> kept
+            (10.010, 1, 30, 0),  # release            -> dropped (value 0)
+            (10.020, 1, 30, 2),  # autorepeat         -> dropped (value 2)
+            (10.030, 2, 0, 5),   # EV_REL             -> dropped (type != EV_KEY)
+            (10.040, 1, 31, 1),  # EV_KEY 's' press   -> kept
+        ]
+    )
+    stamps = parse_key_down_timestamps(raw)
+    assert stamps == pytest.approx([10.000, 10.040])
+
+
+def test_summarise_cadence_flags_superhuman():
+    # 40 keys, 5 ms apart -> 200 keys/s
+    ts = [i * 0.005 for i in range(40)]
+    s = summarise_cadence(ts)
+    assert s["keystrokes"] == 40
+    assert s["superhuman_speed"] is True
+    assert s["looks_injected"] is True
+
+
+def test_summarise_cadence_flags_robotic_regularity():
+    # 30 keys exactly 100 ms apart: not superhuman, but machine-regular
+    ts = [i * 0.100 for i in range(30)]
+    s = summarise_cadence(ts)
+    assert s["superhuman_speed"] is False
+    assert s["robotically_regular"] is True
+    assert s["looks_injected"] is True
+
+
+def test_summarise_cadence_human_typing_is_not_flagged():
+    import random
+
+    rng = random.Random(1)
+    t = 0.0
+    ts = []
+    for _ in range(40):
+        t += rng.uniform(0.08, 0.30)  # 3-12 keys/s, irregular
+        ts.append(t)
+    s = summarise_cadence(ts)
+    assert s["looks_injected"] is False
+
+
+def test_summarise_cadence_too_few_keys():
+    assert summarise_cadence([1.0]) == {
+        "keystrokes": 1,
+        "superhuman_speed": False,
+        "robotically_regular": False,
+        "looks_injected": False,
+    }
+
+
+# --------------------------------------------------------------------------
+# probe .snapshot() / .availability() dispatch (the sysfs-fallback path;
+# pyudev is not importable in the test environment so it is always taken)
+# --------------------------------------------------------------------------
+
+
+def test_serial_probe_snapshot_via_sysfs(tmp_path, monkeypatch):
+    tty = tmp_path / "tty"
+    dev = tmp_path / "d" / "usb1" / "1-1" / "1-1:1.0" / "ttyUSB0"
+    dev.mkdir(parents=True)
+    (tty / "ttyUSB0").mkdir(parents=True)
+    (tty / "ttyUSB0" / "device").symlink_to(dev)
+    monkeypatch.setattr(serial_devices, "SYS_CLASS_TTY", str(tty))
+    monkeypatch.setattr(serial_devices, "pyudev", None)
+
+    probe = SerialDeviceProbe(_CFG, 0.0)
+    assert probe.availability().ok is True
+    out = probe.snapshot()
+    assert [o.identity for o in out] == ["tty:ttyUSB0"]
+
+
+def test_mount_probe_snapshot(tmp_path, monkeypatch):
+    mounts = tmp_path / "mounts"
+    mounts.write_text("/dev/sda1 /media/x vfat rw 0 0\n", encoding="utf-8")
+    monkeypatch.setattr(system_state, "PROC_MOUNTS", str(mounts))
+    probe = MountProbe(_CFG, 0.0)
+    assert probe.availability().ok is True
+    assert [o.identity for o in probe.snapshot()] == ["mount:/media/x"]
+
+
+def test_pci_probe_unavailable_without_buses(monkeypatch):
+    monkeypatch.setattr(system_state, "SYS_BUS_PCI", "/no/such/pci")
+    monkeypatch.setattr(system_state, "SYS_BUS_THUNDERBOLT", "/no/such/tb")
+    assert PciDeviceProbe(_CFG, 0.0).availability().ok is False
+
+
+def test_usb_descriptor_probe_snapshot(tmp_path, monkeypatch):
+    root = _fake_usb_tree(tmp_path)
+    monkeypatch.setattr(usb_sysfs, "SYS_BUS_USB_DEVICES", str(root))
+    probe = UsbDescriptorProbe(_CFG, 0.0)
+    assert probe.availability().ok is True
+    out = probe.snapshot()
+    assert any(o.attributes.get("interface_class_name") == "hid" for o in out)
+
+
+def test_video_probe_snapshot_via_sysfs(tmp_path, monkeypatch):
+    v4l = tmp_path / "v4l"
+    _w(v4l / "video0" / "name", "Fake Cam")
+    monkeypatch.setattr(media_devices, "SYS_CLASS_V4L", str(v4l))
+    monkeypatch.setattr(media_devices, "pyudev", None)
+    probe = VideoDeviceProbe(_CFG, 0.0)
+    assert probe.availability().ok is True
+    assert [o.identity for o in probe.snapshot()] == ["v4l:video0"]
+
+
+def test_audio_probe_snapshot_via_proc(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.write_text(ASOUND_SAMPLE, encoding="utf-8")
+    monkeypatch.setattr(media_devices, "PROC_ASOUND_CARDS", str(cards))
+    monkeypatch.setattr(media_devices, "pyudev", None)
+    probe = AudioDeviceProbe(_CFG, 0.0)
+    assert probe.availability().ok is True
+    assert {o.identity for o in probe.snapshot()} == {"sound:Headphones", "sound:C920"}
+
+
+# --------------------------------------------------------------------------
+# pyudev-branch helpers, exercised with a fake device object
+# --------------------------------------------------------------------------
+
+
+def test_serial_observation_from_udev():
+    dev = FakeUdevDevice(
+        {
+            "DEVNAME": "/dev/ttyACM0",
+            "ID_USB_DRIVER": "cdc_acm",
+            "ID_BUS": "usb",
+            "ID_VENDOR_ID": "1234",
+            "ID_MODEL_ID": "5678",
+            "ID_SERIAL_SHORT": "ABC",
+        },
+        sys_name="ttyACM0",
+    )
+    obs = _observation_from_udev(dev)
+    assert obs.identity == "tty:ttyACM0"
+    assert obs.attributes["usb_serial"] is True
+    assert obs.attributes["is_usb"] is True
+    assert obs.attributes["serial"] == "ABC"
+
+
+def test_video_observation_from_udev():
+    dev = FakeUdevDevice(
+        {
+            "DEVNAME": "/dev/video0",
+            "ID_V4L_PRODUCT": "Evil Cam",
+            "ID_BUS": "usb",
+            "ID_VENDOR_ID": "dead",
+            "ID_MODEL_ID": "beef",
+        },
+        sys_name="video0",
+    )
+    obs = _video_from_udev(dev)
+    assert obs.identity == "v4l:video0"
+    assert obs.attributes["human_name"] == "Evil Cam"
+    assert obs.attributes["is_usb"] is True
+
+
+def test_audio_from_udev_skips_non_card_nodes():
+    from cableprobe.probes.media_devices import _audio_from_udev
+
+    assert _audio_from_udev(FakeUdevDevice({}, sys_name="controlC0")) is None
+    card = _audio_from_udev(
+        FakeUdevDevice(
+            {"ID_BUS": "usb", "ID_MODEL": "USB Mic"}, sys_name="card1"
+        )
+    )
+    assert card is not None and card.identity == "sound:card1"
+    assert card.attributes["is_usb"] is True
+
+
+# --------------------------------------------------------------------------
+# wifi_scan / keystroke_cadence probe classes
+# --------------------------------------------------------------------------
+
+
+def test_wifi_scan_probe_snapshot_uses_iw(monkeypatch):
+    from cableprobe.probes import wifi_scan
+
+    monkeypatch.setattr(wifi_scan, "wifi_interfaces", lambda root=None: ["wlan0"])
+    monkeypatch.setattr(wifi_scan, "have_tool", lambda name: name == "iw")
+    monkeypatch.setattr(
+        wifi_scan, "run_command", lambda *a, **k: (0, IW_SCAN_SAMPLE, "")
+    )
+    probe = wifi_scan.WifiScanProbe(_CFG, 0.0)
+    assert probe.availability().ok is True
+    out = probe.snapshot()
+    assert {o.kind for o in out} == {KIND_WIFI_AP}
+    assert any(o.attributes["strong_signal"] for o in out)
+
+
+def test_wifi_scan_probe_unavailable_without_interface(monkeypatch):
+    from cableprobe.probes import wifi_scan
+
+    monkeypatch.setattr(wifi_scan, "have_tool", lambda name: True)
+    monkeypatch.setattr(wifi_scan, "wifi_interfaces", lambda root=None: [])
+    assert wifi_scan.WifiScanProbe(_CFG, 0.0).availability().ok is False
+
+
+def test_keystroke_probe_disabled_by_config():
+    cfg = Config.model_validate({"probes": {"capture_keystroke_timing": False}})
+    from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe
+
+    probe = KeystrokeCadenceProbe(cfg, 0.0)
+    a = probe.availability()
+    assert a.ok is False and "disabled" in a.detail
+
+
+def test_keystroke_probe_snapshot_from_collected_timestamps():
+    from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe
+
+    probe = KeystrokeCadenceProbe(_CFG, 0.0)
+    with probe._lock:
+        probe._timestamps["event3"] = [i * 0.004 for i in range(50)]  # ~250 keys/s
+    out = probe.snapshot()
+    assert len(out) == 1
+    assert out[0].kind == KIND_KEYSTROKE_TIMING
+    assert out[0].identity == "kbdtiming:event3"
+    assert out[0].attributes["looks_injected"] is True

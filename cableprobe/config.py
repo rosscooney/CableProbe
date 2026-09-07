@@ -36,6 +36,8 @@ DEFAULT_PROBES: list[str] = [
     "video",
     "pci",
     "kernel_modules",
+    "wifi_scan",
+    "keystroke_cadence",
     "process",
     "kernel_log",
 ]
@@ -80,6 +82,9 @@ class ProbeConfig(BaseModel):
     #: secrets (e.g. passwords passed as arguments); set false to store only the
     #: executable name.
     capture_process_cmdline: bool = True
+    #: Let the keystroke_cadence probe read /dev/input/event* for key-press
+    #: *timing* (never key identity). Set false to disable that probe entirely.
+    capture_keystroke_timing: bool = True
 
     @field_validator("kernel_log_backend")
     @classmethod

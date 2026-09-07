@@ -251,4 +251,4 @@ class PciDeviceProbe(Probe):
         )
 
     def snapshot(self) -> list[Observation]:
-        return scan_pci_sysfs()
+        return scan_pci_sysfs(SYS_BUS_PCI, SYS_BUS_THUNDERBOLT)

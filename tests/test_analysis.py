@@ -69,6 +69,21 @@ def test_volatile_attributes_do_not_trigger_modified(phase_builder):
     assert analyse(phases) == []
 
 
+def test_probe_bookkeeping_attributes_are_volatile(phase_builder):
+    # a kernel module's refcount and a socket's inode churn on their own
+    before = obs("kernel_module", "kmod:xhci_hcd", "xhci_hcd", refcount=2, state="Live")
+    after = obs("kernel_module", "kmod:xhci_hcd", "xhci_hcd", refcount=5, state="Live")
+    phases = phase_builder(baseline_end=[before], test_end=[after], post_end=[after])
+    assert analyse(phases) == []
+
+    # but a real state change still registers
+    b2 = obs("kernel_module", "kmod:xhci_hcd", "xhci_hcd", refcount=2, used_by=[])
+    a2 = obs("kernel_module", "kmod:xhci_hcd", "xhci_hcd", refcount=2, used_by=["evil"])
+    phases2 = phase_builder(baseline_end=[b2], test_end=[a2], post_end=[a2])
+    (delta,) = analyse(phases2)
+    assert delta.attribute_changes[0].key == "used_by"
+
+
 def test_unchanged_devices_produce_no_delta(phase_builder):
     dev = obs(KIND_USB_DEVICE, "usb:1:2", "Dev")
     phases = phase_builder(baseline_end=[dev], test_end=[dev], post_end=[dev])
