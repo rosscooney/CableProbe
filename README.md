@@ -39,7 +39,10 @@ A session has three phases:
 CableProbe then compares the three phases and writes a structured JSON report
 describing everything that **appeared, disappeared or changed** in correlation
 with the cable, and runs a set of YAML-configurable detection rules over those
-differences to produce prioritised findings.
+differences to produce prioritised findings. The console summary ends with a
+plain-language **"What this means"** box — an overall read of the session and
+what to do next, written for a moderately technical reader rather than a USB
+specialist.
 
 Connector type does not matter — CableProbe watches how the host reacts, not the
 plug. Any cable you can get one end of into a port on the test Pi works: USB-C or
@@ -127,7 +130,7 @@ work, but the live probes are unavailable.
 # 1a. pipx — to the latest *published* release on PyPI
 pipx upgrade cableprobe
 pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.5    # pin / roll back to a specific release
+pipx install --force cableprobe==0.3.6    # pin / roll back to a specific release
 
 # 1b. pipx — to the latest development code (main), ahead of the last release
 pipx install --force "git+https://github.com/rosscooney/CableProbe"
@@ -149,7 +152,7 @@ cableprobe check
 ```
 
 `pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.5` means there is no newer release
+`cableprobe is already at latest version 0.3.6` means there is no newer release
 — publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
 use the `git+https://…` form above to track `main`. If a new version drops a
 probe or changes report fields it is called out in the GitHub release notes;

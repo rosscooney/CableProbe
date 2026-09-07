@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 
+from cableprobe.advice import build_advice
 from cableprobe.models import Delta, Finding, SessionReport
 
 try:  # rich ships with Typer, but keep rendering optional
@@ -101,6 +102,7 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
 
     _render_delta_table(console, report.deltas)
     _render_findings(console, report.findings)
+    _render_advice(console, report)
 
     summary = report.summary
     console.print(
@@ -110,6 +112,31 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
         f"{summary.get('highest_severity') or 'none'}[/]"
     )
     return text
+
+
+_ADVICE_BORDER = {
+    "critical": "red",
+    "high": "red",
+    "medium": "yellow",
+    "low": "cyan",
+    "info": "cyan",
+    "none": "green",
+}
+
+
+def _render_advice(console, report: SessionReport) -> None:
+    advice = build_advice(report)
+    style = _SEVERITY_STYLE.get(advice.severity, "dim")
+    lines = [f"[{style}][bold]{_rich_escape(advice.headline)}[/bold][/]"]
+    for line in advice.body:
+        lines.append(_rich_escape(line) if line else "")
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title="What this means",
+            border_style=_ADVICE_BORDER.get(advice.severity, "cyan"),
+        )
+    )
 
 
 def _render_delta_table(console, deltas: list[Delta]) -> None:
@@ -191,6 +218,15 @@ def _plain_summary(report: SessionReport) -> list[str]:
         lines.append(f"  [{finding.severity.upper()}] {finding.title} ({finding.rule_id})")
         for ev in finding.evidence:
             lines.append(f"      - {ev}")
+
+    advice = build_advice(report)
+    lines.append("")
+    lines.append("=" * 70)
+    lines.append(f"WHAT THIS MEANS — {advice.headline}")
+    lines.append("=" * 70)
+    for line in advice.body:
+        lines.append(line)
+    lines.append("=" * 70)
 
     lines.append("")
     lines.append(f"Highest severity: {report.summary.get('highest_severity') or 'none'}")

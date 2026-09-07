@@ -32,6 +32,6 @@ KEYBOARD_LAYOUT="English (UK)"
 
 # Where pip should get CableProbe from during the build:
 #   - a released version from PyPI (recommended once published):
-export CABLEPROBE_SRC="cableprobe==0.3.5"
+export CABLEPROBE_SRC="cableprobe==0.3.6"
 #   - or straight from git at a tag:
-# export CABLEPROBE_SRC="cableprobe @ git+https://github.com/rosscooney/CableProbe@v0.3.5"
+# export CABLEPROBE_SRC="cableprobe @ git+https://github.com/rosscooney/CableProbe@v0.3.6"
