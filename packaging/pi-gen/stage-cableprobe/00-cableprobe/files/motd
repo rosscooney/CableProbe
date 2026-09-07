@@ -1,0 +1,13 @@
+
+  CableProbe  --  defensive USB cable analysis  (disposable test rig)
+
+  This image observes, records and reports only. Treat any cable under
+  test as hostile hardware. CableProbe cannot prove a cable is safe.
+
+    cableprobe check
+    sudo cableprobe run --name <label> -o /var/lib/cableprobe/sessions
+    cableprobe report <file>
+
+  Suggested report location on this image: /var/lib/cableprobe/sessions
+  Re-flash this image between suspect cables.
+

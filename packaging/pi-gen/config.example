@@ -1,0 +1,37 @@
+# Copyright (c) 2026 Stable State Consulting Ltd
+# SPDX-License-Identifier: MIT
+#
+# Example pi-gen config for building a disposable CableProbe image on top of
+# stock Raspberry Pi OS Lite. Copy this to `config` in your pi-gen checkout
+# (or pass it with `./build.sh -c /path/to/config`).
+#
+# See packaging/pi-gen/README.md for the full procedure.
+
+IMG_NAME="CableProbe"
+RELEASE="bookworm"
+
+# Lite base (stage2), then our stage. Skipping stage3+ keeps it headless.
+STAGE_LIST="stage0 stage1 stage2 ./stage-cableprobe"
+
+# Do not build the NOOBS variant.
+export NO_NOOBS=1
+
+# First-boot user (pi-gen >= bookworm requires an explicit user).
+FIRST_USER_NAME="probe"
+FIRST_USER_PASS="changeme-on-first-use"
+DISABLE_FIRST_BOOT_USER_RENAME=0
+
+# Locale / keyboard - adjust to taste.
+TIMEZONE_DEFAULT="Etc/UTC"
+LOCALE_DEFAULT="en_GB.UTF-8"
+KEYBOARD_KEYMAP="gb"
+KEYBOARD_LAYOUT="English (UK)"
+
+# Enable SSH if you want remote access to the rig (off by default).
+# ENABLE_SSH=1
+
+# Where pip should get CableProbe from during the build:
+#   - a released version from PyPI (recommended once published):
+export CABLEPROBE_SRC="cableprobe==0.1.0"
+#   - or straight from git at a tag:
+# export CABLEPROBE_SRC="cableprobe @ git+https://<host>/<org>/cableprobe@v0.1.0"

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "CableProbe"
+version = "0.1.0"
+description = "Open-source defensive USB cable analysis tool for Linux"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Stable State Consulting Ltd" }]
+maintainers = [{ name = "Stable State Consulting Ltd" }]
+keywords = ["usb", "usb-c", "security", "defensive", "raspberry-pi", "hardware"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.6",
+    "pyudev>=0.24; sys_platform == 'linux'",
+    "psutil>=5.9",
+    "PyYAML>=6.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+# TODO: replace with the real repository URL once published.
+[project.urls]
+Homepage = "https://example.invalid/stablestate/cableprobe"
+Source = "https://example.invalid/stablestate/cableprobe"
+Issues = "https://example.invalid/stablestate/cableprobe/issues"
+
+[project.scripts]
+cableprobe = "cableprobe.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["cableprobe*"]
+
+[tool.setuptools.package-data]
+cableprobe = ["data/*.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

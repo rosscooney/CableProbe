@@ -1,0 +1,253 @@
+# Copyright (c) 2026 Stable State Consulting Ltd
+# SPDX-License-Identifier: MIT
+# CableProbe default detection rules (v0.1)
+#
+# Each rule matches a "delta" (something that appeared / disappeared / changed
+# between the baseline, test and post-test phases) and raises a finding.
+#
+# Match vocabulary:
+#   change:                appeared | disappeared | modified   (string or list)
+#   kind:                  usb_device | block_device | network_interface |
+#                          input_device | hid_device | serial_device |
+#                          audio_device | video_device | process | kernel_message
+#   first_seen_phase:      baseline | test | post_test
+#   reverted_after_disconnect: true | false
+#   transient:             true | false   (seen only via a udev event)
+#   label_regex:           regex (case-insensitive) against the delta label
+#   event_action:          add | remove | bind | ...  (requires a related event)
+#   attributes:
+#     all: [ {key, equals|not_equals|exists|contains|regex}, ... ]
+#     any: [ ... ]
+#
+# severity: info | low | medium | high | critical
+
+version: 1
+
+# Reusable list of "real device" observation kinds (excludes process /
+# kernel_message, which have their own normal churn).
+device_kinds: &device_kinds
+  - usb_device
+  - block_device
+  - network_interface
+  - input_device
+  - hid_device
+  - serial_device
+  - audio_device
+  - video_device
+
+rules:
+  - id: hid-keyboard-appeared-on-connect
+    title: HID keyboard appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      A keyboard-class HID device that enumerates only when the cable is
+      connected is the classic signature of a BadUSB / keystroke-injection
+      implant hidden inside the cable or connector.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: [input_device, hid_device]
+      attributes:
+        any:
+          - { key: ID_INPUT_KEYBOARD, equals: "1" }
+          - { key: capabilities, contains: keyboard }
+
+  - id: hid-pointer-appeared-on-connect
+    title: HID pointing device appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      A mouse / touchpad / tablet HID device appearing on connect can be used
+      for pointer-based injection or to defeat "are you sure?" prompts.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: [input_device, hid_device]
+      attributes:
+        any:
+          - { key: ID_INPUT_MOUSE, equals: "1" }
+          - { key: capabilities, contains: mouse }
+          - { key: capabilities, contains: touchpad }
+          - { key: capabilities, contains: tablet }
+
+  - id: hid-generic-appeared-on-connect
+    title: Input/HID device appeared while the unknown cable was connected
+    severity: medium
+    rationale: >
+      Any human-interface device that appears only when the cable is connected
+      is unexpected for a plain charge/data cable and warrants inspection.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: [input_device, hid_device]
+
+  - id: network-interface-appeared-on-connect
+    title: Network interface appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      A USB CDC/RNDIS/NCM ethernet gadget lets a malicious cable present itself
+      as a network device, enabling DNS/gateway hijacking or traffic capture.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: network_interface
+
+  - id: usb-ethernet-gadget-kernel-signature
+    title: Kernel logged a USB ethernet/CDC gadget during the test phase
+    severity: critical
+    rationale: >
+      Kernel messages referencing cdc_ether / rndis / cdc_ncm / usbnet during
+      the test phase indicate the cable enumerated a network gadget.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: kernel_message
+      label_regex: "cdc_ether|cdc_ncm|rndis|usbnet|r8152|ax88"
+
+  - id: mass-storage-appeared-on-connect
+    title: Storage device appeared while the unknown cable was connected
+    severity: high
+    rationale: >
+      A mass-storage device enumerating on connect can be used to auto-run
+      content, exfiltrate data, or deliver payloads to the host.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: block_device
+      attributes:
+        any:
+          - { key: transport, equals: usb }
+          - { key: hotplug, equals: "True" }
+          - { key: removable, equals: "True" }
+
+  - id: mass-storage-appeared-generic
+    title: A block device appeared while the unknown cable was connected
+    severity: medium
+    rationale: >
+      A new block device correlated with the cable connection is unexpected for
+      a plain cable, even if the transport could not be confirmed as USB.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: block_device
+
+  - id: serial-device-appeared-on-connect
+    title: Serial / modem device appeared while the unknown cable was connected
+    severity: medium
+    rationale: >
+      A CDC-ACM / USB serial interface appearing on connect can expose an AT
+      command or debug channel controlled by the cable.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: serial_device
+
+  - id: audio-video-appeared-on-connect
+    title: Audio or video capture device appeared while the unknown cable was connected
+    severity: medium
+    rationale: >
+      An unexpected audio or UVC video device could be used for covert capture.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: [audio_device, video_device]
+
+  - id: usb-hub-appeared-on-connect
+    title: USB hub appeared while the unknown cable was connected
+    severity: low
+    rationale: >
+      A hidden hub inside a cable is how multiple malicious interfaces (HID +
+      storage + network) are attached behind a single connector.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_device
+      attributes:
+        any:
+          - { key: device_class, equals: "09" }
+          - { key: interface_classes, contains: hub }
+
+  - id: usb-composite-with-hid
+    title: Composite USB device including an HID interface appeared on connect
+    severity: high
+    rationale: >
+      A device advertising several interface classes, one of them HID, that
+      appears on connect is a strong implant signature.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_device
+      attributes:
+        all:
+          - { key: interface_classes, contains: hid }
+          - { key: interface_count, not_equals: "1" }
+
+  - id: usb-device-did-not-revert
+    title: Device that appeared on connect did NOT disappear after disconnect
+    severity: medium
+    rationale: >
+      A device that persists in the kernel's view after the cable is removed
+      may indicate a driver/interface that was left registered, or that the
+      operator did not fully remove the cable. Investigate.
+    match:
+      change: appeared
+      first_seen_phase: test
+      reverted_after_disconnect: false
+      kind: *device_kinds
+
+  - id: device-appeared-after-disconnect
+    title: Device appeared only after the cable was disconnected
+    severity: low
+    rationale: >
+      Delayed enumeration after disconnect can indicate a timer-based payload
+      or a slow-settling bus. Correlate with kernel messages.
+    match:
+      change: appeared
+      first_seen_phase: post_test
+      kind: *device_kinds
+
+  - id: transient-device-during-test
+    title: A device briefly attached and detached during the test phase
+    severity: medium
+    rationale: >
+      A device that enumerated and then removed itself within the test window
+      (never captured in a steady-state snapshot) is characteristic of a
+      short-lived injection payload.
+    match:
+      change: appeared
+      first_seen_phase: test
+      transient: true
+
+  - id: kernel-enumeration-errors
+    title: Kernel reported USB enumeration errors during the test phase
+    severity: low
+    rationale: >
+      Descriptor-read failures, "unable to enumerate", over-current or
+      "not accepting address" during the test phase can indicate a
+      non-compliant or actively misbehaving device.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: kernel_message
+      label_regex: "descriptor read|unable to enumerate|over-current|not accepting address|-71|-110"
+
+  - id: unexpected-usb-device-appeared
+    title: An unrecognised USB device appeared while the cable was connected
+    severity: info
+    rationale: >
+      Baseline catch-all: any USB device that appears in correlation with the
+      cable is worth recording even if no specific rule matched it.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_device
+
+  - id: new-process-after-connect
+    title: A new process started in correlation with the cable connection
+    severity: info
+    rationale: >
+      Low-confidence signal. Auto-mount helpers, ModemManager probing, or
+      network configuration daemons may start in response to a new device.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: process

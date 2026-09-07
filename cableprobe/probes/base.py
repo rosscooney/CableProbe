@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stable State Consulting Ltd
+# SPDX-License-Identifier: MIT
+
+"""Probe base class and shared subprocess helpers."""
+
+from __future__ import annotations
+
+import abc
+import functools
+import shutil
+import subprocess
+from dataclasses import dataclass
+from typing import Any
+
+from cableprobe.config import Config
+from cableprobe.logging_config import get_logger
+from cableprobe.models import Observation, ProbeEvent
+
+log = get_logger("probe")
+
+
+@functools.lru_cache(maxsize=1)
+def udev_context() -> Any:
+    """Return a process-wide cached ``pyudev.Context``.
+
+    Creating a Context per snapshot (every sampling tick) is wasteful; enumeration
+    on a shared Context is safe. Raises if pyudev is unavailable - callers guard.
+    """
+
+    import pyudev
+
+    return pyudev.Context()
+
+
+@dataclass(frozen=True)
+class ProbeAvailability:
+    ok: bool
+    detail: str = ""
+
+
+class Probe(abc.ABC):
+    """Base class for all probes."""
+
+    #: Stable short name, also the key used in configuration.
+    name: str = "probe"
+    #: One-line human description.
+    description: str = ""
+
+    def __init__(self, config: Config, session_start: float) -> None:
+        self.config = config
+        self.session_start = session_start
+
+    # -- lifecycle --------------------------------------------------------
+
+    def availability(self) -> ProbeAvailability:
+        """Return whether this probe can run. Override for real checks."""
+
+        return ProbeAvailability(ok=True)
+
+    async def start(self) -> None:
+        """Begin any background monitoring. Default: no-op."""
+
+    async def stop(self) -> None:
+        """Tear down background monitoring. Default: no-op."""
+
+    # -- data -----------------------------------------------------------
+
+    #: If False, this probe is skipped for periodic in-phase samples and only
+    #: read at each phase's start/end snapshot (use for cumulative/expensive
+    #: probes such as the kernel log).
+    samples_periodically: bool = True
+
+    @abc.abstractmethod
+    def snapshot(self) -> list[Observation]:
+        """Return the current point-in-time observations.
+
+        Called from a worker thread (via ``asyncio.to_thread``), so it may block
+        on subprocesses and filesystem reads.
+        """
+
+    def drain_events(self) -> list[ProbeEvent]:
+        """Return and clear any asynchronous events seen since the last call."""
+
+        return []
+
+
+# --------------------------------------------------------------------------
+# subprocess helpers
+# --------------------------------------------------------------------------
+
+
+def have_tool(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def run_command(args: list[str], *, timeout: float = 15.0) -> tuple[int, str, str]:
+    """Run ``args`` and return ``(returncode, stdout, stderr)``.
+
+    Never raises for ordinary failures; returns ``(-1, "", reason)`` instead.
+    """
+
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return -1, "", f"command not found: {args[0]}"
+    except subprocess.TimeoutExpired:
+        return -1, "", f"command timed out after {timeout}s: {' '.join(args)}"
+    except OSError as exc:  # pragma: no cover - defensive
+        return -1, "", f"failed to run {' '.join(args)}: {exc}"
+    return proc.returncode, proc.stdout, proc.stderr

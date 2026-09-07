@@ -1,0 +1,292 @@
+# Copyright (c) 2026 Stable State Consulting Ltd
+# SPDX-License-Identifier: MIT
+
+"""CableProbe command-line interface (Typer)."""
+
+from __future__ import annotations
+
+import asyncio
+import shutil
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+from cableprobe import __version__
+from cableprobe.config import Config
+from cableprobe.logging_config import setup_logging
+from cableprobe.probes import PROBE_REGISTRY
+from cableprobe.report import (
+    exit_code_for,
+    load_report,
+    render_summary,
+    write_report,
+)
+from cableprobe.rules import RuleSet
+from cableprobe.session import run_session
+from cableprobe.system_info import collect_host_info
+
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    help=(
+        "CableProbe - defensive USB-C cable analysis.\n\n"
+        "Runs a controlled baseline / test / post-test session and reports "
+        "anything that changed in correlation with an unknown cable being "
+        "connected. Observation only; CableProbe never modifies the system."
+    ),
+)
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"cableprobe {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."
+    ),
+) -> None:
+    pass
+
+
+def _load_config(config_path: Optional[Path]) -> Config:
+    try:
+        return Config.load(config_path)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"error: could not load config: {exc}", fg="red", err=True)
+        raise typer.Exit(code=2) from exc
+
+
+def _operator_prompt(phase: str, message: str) -> None:
+    typer.secho("\n" + "=" * 70, fg="bright_black")
+    typer.secho(message, fg="yellow", bold=True)
+    typer.secho("=" * 70, fg="bright_black")
+    try:
+        input("Press ENTER when ready to begin this phase... ")
+    except EOFError:  # non-interactive stdin
+        typer.secho("(no TTY - continuing automatically)", fg="bright_black")
+
+
+def _auto_prompt_factory(grace: int):
+    def _auto_prompt(phase: str, message: str) -> None:
+        typer.secho("\n" + message, fg="yellow", bold=True)
+        for remaining in range(grace, 0, -1):
+            typer.secho(f"  starting {phase} in {remaining}s ...", fg="bright_black")
+            time.sleep(1)
+
+    return _auto_prompt
+
+
+def _tick(phase: str, elapsed: float, duration: float) -> None:
+    pct = int(100 * elapsed / duration) if duration else 100
+    typer.secho(f"  [{phase}] {elapsed:5.1f}/{duration:.0f}s ({pct:3d}%)", fg="bright_black")
+
+
+@app.command()
+def run(
+    baseline: Optional[int] = typer.Option(None, help="Baseline phase duration (seconds)."),
+    test: Optional[int] = typer.Option(None, help="Test phase duration (seconds)."),
+    post_test: Optional[int] = typer.Option(None, "--post-test", help="Post-test duration (seconds)."),
+    interval: Optional[float] = typer.Option(None, help="Sampling interval (seconds)."),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config file."),
+    rules: Optional[Path] = typer.Option(None, "--rules", "-r", help="YAML rules file (default: built-in)."),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Where to write the report."),
+    session_name: Optional[str] = typer.Option(None, "--name", "-n", help="Human name for this session."),
+    auto: bool = typer.Option(
+        False, "--auto", help="Do not wait for operator input; advance phases on a timer."
+    ),
+    fail_on_findings: bool = typer.Option(
+        False, "--fail-on-findings", help="Exit non-zero when medium+ findings are present."
+    ),
+    verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="-v info, -vv debug."),
+) -> None:
+    """Run a full three-phase cable analysis session."""
+
+    logger = setup_logging(verbose)
+    cfg = _load_config(config)
+
+    if baseline is not None:
+        cfg.session.baseline_seconds = baseline
+    if test is not None:
+        cfg.session.test_seconds = test
+    if post_test is not None:
+        cfg.session.post_test_seconds = post_test
+    if interval is not None:
+        cfg.session.sample_interval_seconds = interval
+    if output_dir is not None:
+        cfg.output_dir = output_dir
+    if auto:
+        cfg.session.interactive = False
+
+    # re-validate after overrides
+    cfg = Config.model_validate(cfg.model_dump())
+
+    rules_path = rules or cfg.rules_file
+    try:
+        ruleset = RuleSet.resolve(rules_path)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"error: could not load rules: {exc}", fg="red", err=True)
+        raise typer.Exit(code=2) from exc
+
+    name = session_name or f"cableprobe-{time.strftime('%Y%m%dT%H%M%S')}"
+    prompt_fn = (
+        _auto_prompt_factory(cfg.session.auto_advance_grace_seconds)
+        if not cfg.session.interactive
+        else _operator_prompt
+    )
+
+    typer.secho(f"CableProbe {__version__} - session {name!r}", fg="green", bold=True)
+    typer.echo(
+        f"phases: baseline={cfg.session.baseline_seconds}s "
+        f"test={cfg.session.test_seconds}s post-test={cfg.session.post_test_seconds}s "
+        f"(sample every {cfg.session.sample_interval_seconds}s)"
+    )
+
+    try:
+        report = asyncio.run(
+            run_session(
+                cfg,
+                ruleset,
+                session_name=name,
+                prompt_fn=prompt_fn,
+                on_tick=_tick if verbose else None,
+            )
+        )
+    except KeyboardInterrupt:  # pragma: no cover
+        typer.secho("\naborted by operator", fg="red", err=True)
+        raise typer.Exit(code=130)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("session failed")
+        typer.secho(f"error: session failed: {exc}", fg="red", err=True)
+        raise typer.Exit(code=1) from exc
+
+    path = write_report(report, cfg.output_dir)
+    typer.echo("")
+    render_summary(report)
+    typer.secho(f"\nreport written to {path}", fg="green")
+
+    if fail_on_findings:
+        raise typer.Exit(code=exit_code_for(report))
+
+
+@app.command()
+def check(
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config file."),
+    verbose: int = typer.Option(0, "--verbose", "-v", count=True),
+) -> None:
+    """Check that this host can run CableProbe (probes, tools, permissions)."""
+
+    setup_logging(verbose)
+    cfg = _load_config(config)
+    host = collect_host_info()
+
+    typer.secho("Host", fg="cyan", bold=True)
+    typer.echo(f"  node:        {host.get('node')}")
+    typer.echo(f"  model:       {host.get('hardware_model', host.get('machine'))}")
+    typer.echo(f"  kernel:      {host.get('release')}")
+    typer.echo(f"  python:      {host.get('python_version')}")
+    typer.echo(f"  root:        {host.get('running_as_root')}")
+
+    typer.secho("\nExternal tools", fg="cyan", bold=True)
+    for tool in ("lsusb", "lsblk", "journalctl", "dmesg", "udevadm"):
+        present = shutil.which(tool) is not None
+        mark = "ok " if present else "MISSING"
+        typer.secho(f"  {mark:8}{tool}", fg="green" if present else "yellow")
+
+    typer.secho("\nProbes", fg="cyan", bold=True)
+    all_ok = True
+    session_start = time.time()
+    for name in cfg.probes.enabled:
+        probe_cls = PROBE_REGISTRY.get(name)
+        if probe_cls is None:
+            typer.secho(f"  UNKNOWN  {name}", fg="red")
+            all_ok = False
+            continue
+        probe = probe_cls(config=cfg, session_start=session_start)
+        availability = probe.availability()
+        mark = "ok " if availability.ok else "FAIL"
+        colour = "green" if availability.ok else "yellow"
+        detail = f" - {availability.detail}" if availability.detail else ""
+        typer.secho(f"  {mark:8}{name}{detail}", fg=colour)
+        all_ok = all_ok and availability.ok
+
+    try:
+        cfg.output_dir.mkdir(parents=True, exist_ok=True)
+        probe_file = cfg.output_dir / ".cableprobe-write-test"
+        probe_file.write_text("ok", encoding="utf-8")
+        probe_file.unlink()
+        typer.secho(f"\noutput dir writable: {cfg.output_dir}", fg="green")
+    except OSError as exc:
+        typer.secho(f"\noutput dir NOT writable: {cfg.output_dir} ({exc})", fg="red")
+        all_ok = False
+
+    if not host.get("running_as_root"):
+        typer.secho(
+            "\nnote: some probes see more detail when run with sudo (kernel log, udev attrs).",
+            fg="bright_black",
+        )
+
+    raise typer.Exit(code=0 if all_ok else 1)
+
+
+@app.command()
+def probes() -> None:
+    """List available probes."""
+
+    for name, probe_cls in PROBE_REGISTRY.items():
+        typer.secho(name, fg="cyan", bold=True)
+        typer.echo(f"  {probe_cls.description}")
+
+
+@app.command()
+def rules(
+    path: Optional[Path] = typer.Argument(None, help="Rules YAML file (default: built-in)."),
+) -> None:
+    """Show the detection rules that would be used."""
+
+    try:
+        ruleset = RuleSet.resolve(path)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"error: {exc}", fg="red", err=True)
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(f"ruleset version {ruleset.version}, {len(ruleset.rules)} rule(s)\n")
+    for rule in ruleset.rules:
+        typer.secho(f"[{rule.severity.upper():8}] {rule.id}", fg="cyan")
+        typer.echo(f"           {rule.title}")
+
+
+@app.command()
+def report(
+    path: Path = typer.Argument(..., help="Path to a .cableprobe.json report."),
+    output_format: str = typer.Option("summary", "--format", "-f", help="summary | json"),
+) -> None:
+    """Re-render a previously saved report."""
+
+    if not path.is_file():
+        typer.secho(f"error: no such file: {path}", fg="red", err=True)
+        raise typer.Exit(code=2)
+    try:
+        loaded = load_report(path)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"error: could not parse report: {exc}", fg="red", err=True)
+        raise typer.Exit(code=2) from exc
+
+    if output_format == "json":
+        typer.echo(loaded.to_json())
+    else:
+        render_summary(loaded)
+
+
+def main() -> None:  # pragma: no cover - entry point shim
+    app()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(app())

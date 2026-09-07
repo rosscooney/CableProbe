@@ -1,0 +1,5 @@
+# Copyright (c) 2026 Stable State Consulting Ltd
+# SPDX-License-Identifier: MIT
+#
+# Presence of this file tells pi-gen to export a disk image after this stage.
+IMG_SUFFIX="-cableprobe"
