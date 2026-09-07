@@ -194,6 +194,29 @@ def test_run_as_root_has_no_sudo_warning(tmp_path, monkeypatch):
     assert "NOT running as root" not in result.output
 
 
+def test_phase_progress_plain_falls_back_to_text_lines(capsys):
+    from cableprobe.cli import _PhaseProgress
+
+    p = _PhaseProgress(plain=True)
+    p.tick("baseline", 1.0, 2.0)
+    p.tick("baseline", 2.0, 2.0)
+    p.close()
+    out = capsys.readouterr().out
+    assert "[baseline]" in out and "100%" in out
+
+
+def test_phase_progress_bar_runs_through_three_phases():
+    from cableprobe.cli import _PhaseProgress
+
+    p = _PhaseProgress()
+    for phase, dur in (("baseline", 2.0), ("test", 3.0), ("post_test", 2.0)):
+        for step in (1.0, 2.0, dur):
+            p.tick(phase, min(step, dur), dur)
+    # each phase closed its own bar as it hit 100%; a final close is a no-op
+    assert p._progress is None
+    p.close()
+
+
 def test_check_mentions_sudo_when_not_root(monkeypatch):
     from pathlib import Path
 

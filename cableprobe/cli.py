@@ -179,9 +179,74 @@ def _auto_prompt_factory(grace: int):
     return _auto_prompt
 
 
-def _tick(phase: str, elapsed: float, duration: float) -> None:
+def _tick_line(phase: str, elapsed: float, duration: float) -> None:
     pct = int(100 * elapsed / duration) if duration else 100
-    typer.secho(f"  [{phase}] {elapsed:5.1f}/{duration:.0f}s ({pct:3d}%)", fg="bright_black")
+    typer.secho(
+        f"  [{phase}] {elapsed:5.1f}/{duration:.0f}s ({pct:3d}%)", fg="bright_black"
+    )
+
+
+class _PhaseProgress:
+    """Render a progress bar for each observation phase, driven from ``on_tick``.
+
+    One bar per phase (``baseline`` / ``test`` / ``post_test``); each fills to
+    100% and stays on screen, so the finished session shows all three. Falls
+    back to plain text lines when ``plain`` is set (e.g. under ``-v``, so the bar
+    does not fight with log output) or when ``rich`` is unavailable.
+    """
+
+    def __init__(self, *, plain: bool = False) -> None:
+        self._phase: str | None = None
+        self._progress = None
+        self._task = None
+        self._factory = None
+        if plain:
+            return
+        try:  # rich ships with typer, but stay defensive
+            from rich.progress import (
+                BarColumn,
+                Progress,
+                TaskProgressColumn,
+                TextColumn,
+                TimeRemainingColumn,
+            )
+
+            self._factory = lambda: Progress(
+                TextColumn("  [bold]{task.description:<9}[/bold]"),
+                BarColumn(bar_width=36),
+                TaskProgressColumn(),
+                TextColumn("{task.completed:>3.0f}/{task.total:.0f}s"),
+                TimeRemainingColumn(),
+            )
+        except Exception:  # pragma: no cover - rich missing
+            self._factory = None
+
+    def tick(self, phase: str, elapsed: float, duration: float) -> None:
+        if self._factory is None:
+            _tick_line(phase, elapsed, duration)
+            return
+        if phase != self._phase:
+            self.close()
+            self._phase = phase
+            self._progress = self._factory()
+            self._progress.start()
+            self._task = self._progress.add_task(phase, total=duration)
+        self._progress.update(self._task, completed=min(elapsed, duration))
+        if elapsed >= duration:
+            self.close()
+
+    def close(self) -> None:
+        if self._progress is not None:
+            try:
+                if self._task is not None:
+                    total = self._progress.tasks[self._task].total
+                    self._progress.update(self._task, completed=total)
+                self._progress.stop()
+            except Exception:  # pragma: no cover - best effort teardown
+                pass
+        self._phase = None
+        self._progress = None
+        self._task = None
 
 
 @app.command()
@@ -200,7 +265,10 @@ def run(
     fail_on_findings: bool = typer.Option(
         False, "--fail-on-findings", help="Exit non-zero when medium+ findings are present."
     ),
-    verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="-v info, -vv debug."),
+    verbose: int = typer.Option(
+        0, "--verbose", "-v", count=True,
+        help="-v info logs (plain progress lines), -vv debug.",
+    ),
 ) -> None:
     """Run a full three-phase cable analysis session."""
 
@@ -246,6 +314,7 @@ def run(
 
     _advise_root("run", interactive=cfg.session.interactive)
 
+    progress = _PhaseProgress(plain=verbose > 0)
     try:
         report = asyncio.run(
             run_session(
@@ -253,7 +322,7 @@ def run(
                 ruleset,
                 session_name=name,
                 prompt_fn=prompt_fn,
-                on_tick=_tick if verbose else None,
+                on_tick=progress.tick,
             )
         )
     except KeyboardInterrupt:  # pragma: no cover
@@ -263,6 +332,8 @@ def run(
         logger.exception("session failed")
         typer.secho(f"error: session failed: {exc}", fg="red", err=True)
         raise typer.Exit(code=1) from exc
+    finally:
+        progress.close()
 
     path = write_report(report, cfg.output_dir)
     typer.echo("")
