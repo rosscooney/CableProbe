@@ -3,8 +3,8 @@
 
 """Block device inventory via ``lsblk -J``.
 
-A USB-C cable that causes a new mass-storage device to enumerate is a strong
-signal, so transport (``tran``) and hotplug status are recorded.
+A cable that causes a new mass-storage device to enumerate is a strong signal,
+so transport (``tran``) and hotplug status are recorded.
 """
 
 from __future__ import annotations

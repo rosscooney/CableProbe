@@ -3,8 +3,8 @@
 
 """Audio and video capture device inventory.
 
-A USB-C cable that enumerates a microphone (USB audio class) or a camera (USB
-video class / UVC) is almost never a plain charge/data cable -- both are covert
+A cable that enumerates a microphone (USB audio class) or a camera (USB video
+class / UVC) is almost never a plain charge/data cable -- both are covert
 capture vectors, and audio-class devices are also a common camouflage for other
 interfaces.
 

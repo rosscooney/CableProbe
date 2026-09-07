@@ -34,7 +34,7 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
     help=(
-        "CableProbe - defensive USB-C cable analysis.\n\n"
+        "CableProbe - defensive USB cable analysis (USB-C or USB-A).\n\n"
         "Runs a controlled baseline / test / post-test session and reports "
         "anything that changed in correlation with an unknown cable being "
         "connected. Observation only; CableProbe never modifies the system."

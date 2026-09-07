@@ -9,10 +9,10 @@ other Debian/Ubuntu systems).
   ([releases](https://github.com/rosscooney/CableProbe/releases))
 - Package: [`cableprobe` on PyPI](https://pypi.org/project/cableprobe/)
 
-CableProbe watches a sacrificial Linux host while you connect an *unknown*
-USB-C-to-USB-C cable, then compares before, during and after to surface hidden
-HID devices, rogue network gadgets, mass storage, serial channels, transient
-enumeration and kernel errors.
+CableProbe watches a sacrificial Linux host while you connect an *unknown* USB
+cable — USB-C **or** USB-A, charge-only or data — then compares before, during
+and after to surface hidden HID devices, rogue network gadgets, mass storage,
+serial channels, transient enumeration and kernel errors.
 
 CableProbe **only observes, records and reports**. It does not inject payloads,
 exploit anything, capture credentials, establish persistence or provide remote
@@ -40,6 +40,12 @@ CableProbe then compares the three phases and writes a structured JSON report
 describing everything that **appeared, disappeared or changed** in correlation
 with the cable, and runs a set of YAML-configurable detection rules over those
 differences to produce prioritised findings.
+
+Connector type does not matter — CableProbe watches how the host reacts, not the
+plug. Any cable you can get one end of into a port on the test Pi works: USB-C or
+USB-A, either orientation, with a passive adapter if you need one. The `usbc_pd`
+probe additionally reports Type-C power-delivery state when the Pi exposes a
+Type-C port, and simply skips otherwise.
 
 ### Probes (observation only)
 
@@ -94,7 +100,7 @@ picture; the short version:
 pipx install cableprobe
 sudo apt install usbutils util-linux iw     # CLI tools CableProbe shells out to
 #   note: this puts `cableprobe` in ~/.local/bin, which is NOT on root's PATH,
-#   so `sudo cableprobe` needs a full path (see "command not found" above).
+#   so `sudo cableprobe` needs a full path (see "command not found" under Usage).
 
 # 2. one command on a Pi (isolated venv under /opt/cableprobe) — RECOMMENDED for
 #    a test rig: links /usr/local/bin/cableprobe so `sudo cableprobe` just works,
@@ -121,7 +127,7 @@ work, but the live probes are unavailable.
 # 1a. pipx — to the latest *published* release on PyPI
 pipx upgrade cableprobe
 pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.2    # pin / roll back to a specific release
+pipx install --force cableprobe==0.3.3    # pin / roll back to a specific release
 
 # 1b. pipx — to the latest development code (main), ahead of the last release
 pipx install --force "git+https://github.com/rosscooney/CableProbe"
@@ -143,7 +149,7 @@ cableprobe check
 ```
 
 `pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.2` means there is no newer release
+`cableprobe is already at latest version 0.3.3` means there is no newer release
 — publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
 use the `git+https://…` form above to track `main`. If a new version drops a
 probe or changes report fields it is called out in the GitHub release notes;
