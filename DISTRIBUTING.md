@@ -71,6 +71,8 @@ work, regardless of those tools' licences.
 
 ## Publishing checklist (maintainers)
 
+See [RELEASING.md](RELEASING.md) for the full step-by-step. In short:
+
 - [ ] `python -m build` → `twine check dist/*` passes
 - [ ] `pip install dist/*.whl` in a clean venv; `cableprobe --version` works
 - [ ] tag `v0.1.0`; publish to PyPI as `cableprobe`

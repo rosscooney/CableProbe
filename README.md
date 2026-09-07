@@ -184,8 +184,9 @@ hardware. Probe parsers (`lsusb`, `lsblk`, `/proc/bus/input/devices`, kernel
 lines) are tested against captured sample output.
 
 The source lives at <https://github.com/rosscooney/CableProbe>. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute, and
-[SECURITY.md](SECURITY.md) for how to report vulnerabilities privately.
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute,
+[SECURITY.md](SECURITY.md) for how to report vulnerabilities privately, and
+[RELEASING.md](RELEASING.md) for how maintainers cut a release to PyPI.
 
 ## Scope / non-goals for v0.1
 
