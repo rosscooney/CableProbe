@@ -73,6 +73,34 @@ def test_keyboard_finding_is_high():
     kb = next(f for f in findings if f.rule_id == "hid-keyboard-appeared-on-connect")
     assert kb.severity == "high"
     assert kb.related_identities == ["input:aaa"]
+    # a keyboard must NOT also trip the generic HID rule (it has its own)
+    assert "hid-generic-appeared-on-connect" not in ids
+
+
+def test_generic_hid_rule_fires_for_non_keyboard_collection():
+    rs = RuleSet.default()
+    # e.g. a keyboard's consumer-control collection: HID, but not keyboard/pointer
+    delta = _delta(
+        KIND_INPUT_DEVICE, "input:cc", capabilities=[], label="Consumer Control"
+    )
+    ids = {f.rule_id for f in rs.evaluate([delta])}
+    assert "hid-generic-appeared-on-connect" in ids
+    assert "hid-keyboard-appeared-on-connect" not in ids
+
+    # but a device whose capabilities list says "keyboard" is excluded
+    kb_caps = _delta(KIND_INPUT_DEVICE, "input:k", capabilities=["keyboard"])
+    kb_ids = {f.rule_id for f in rs.evaluate([kb_caps])}
+    assert "hid-generic-appeared-on-connect" not in kb_ids
+    assert "hid-keyboard-appeared-on-connect" in kb_ids
+
+
+def test_not_contains_condition():
+    from cableprobe.rules import AttributeCondition
+
+    c = AttributeCondition(key="capabilities", not_contains="keyboard")
+    assert c.evaluate({"capabilities": ["mouse", "touchpad"]}) is True
+    assert c.evaluate({"capabilities": ["keyboard"]}) is False
+    assert c.evaluate({}) is True  # absent key -> passes
 
 
 def test_network_interface_finding():

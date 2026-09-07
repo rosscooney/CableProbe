@@ -148,6 +148,12 @@ class InputDeviceProbe(Probe):
                 out: list[Observation] = []
                 seen: set[str] = set()
                 for device in context.list_devices(subsystem="input"):
+                    # The "input" subsystem lists both the logical "inputN"
+                    # devices and their "eventN" / "mouseN" / "jsN" char-device
+                    # children - the same physical device twice, with slightly
+                    # different names. Keep only the logical node.
+                    if not (device.sys_name or "").startswith("input"):
+                        continue
                     if device.get("ID_INPUT") != "1" and not device.get("NAME"):
                         continue
                     obs = _observation_from_udev(device)

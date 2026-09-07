@@ -3,9 +3,12 @@
 
 """Process inventory (only processes started after the session began).
 
-Process churn is noisy, so this probe deliberately reports only processes whose
-creation time is at or after the session start. A helper daemon spawning when a
-storage device is auto-mounted, for example, would show up here.
+Process churn is noisy, so this probe deliberately reports only *userspace*
+processes whose creation time is at or after the session start. Kernel threads
+(``kworker/*``, ``ksoftirqd/*``, ... - children of ``kthreadd``, pid 2) are
+skipped: the kernel spawns, renames and reaps them constantly and none of that
+correlates with a cable. A helper daemon spawning when a storage device is
+auto-mounted, for example, would still show up here.
 """
 
 from __future__ import annotations
@@ -22,10 +25,33 @@ from cableprobe.probes.base import Probe, ProbeAvailability
 
 log = get_logger("probe.process")
 
+#: comm prefixes of kernel worker/helper threads, as a fallback for hosts where
+#: the parent pid does not read back as 2 (kthreadd).
+_KERNEL_THREAD_PREFIXES = (
+    "kworker/",
+    "ksoftirqd/",
+    "migration/",
+    "rcu_",
+    "irq/",
+    "cpuhp/",
+    "watchdog/",
+    "idle_inject/",
+    "kdevtmpfs",
+    "kswapd",
+    "kcompactd",
+    "khugepaged",
+)
+
+
+def _is_kernel_thread(pid: int | None, ppid: int | None, name: str | None) -> bool:
+    if pid in (0, 2) or ppid in (0, 2):
+        return True
+    return bool(name and name.startswith(_KERNEL_THREAD_PREFIXES))
+
 
 class ProcessProbe(Probe):
     name = "process"
-    description = "New processes started since the session began"
+    description = "New userspace processes started since the session began"
 
     def availability(self) -> ProbeAvailability:
         if psutil is None:
@@ -47,6 +73,10 @@ class ProcessProbe(Probe):
                 info = proc.info
                 created = info.get("create_time") or 0.0
                 if created < self.session_start:
+                    continue
+                if _is_kernel_thread(
+                    info.get("pid"), info.get("ppid"), info.get("name")
+                ):
                     continue
                 cmdline = info.get("cmdline") or []
                 observations.append(

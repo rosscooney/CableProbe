@@ -43,10 +43,10 @@ Every release needs a new version number. Edit the `version` field in
 
 ```toml
 [project]
-version = "0.3.5"        # was 0.3.4
+version = "0.3.6"        # was 0.3.5
 ```
 
-Use [semantic versioning](https://semver.org/): patch (`0.3.5`) for fixes, minor
+Use [semantic versioning](https://semver.org/): patch (`0.3.6`) for fixes, minor
 (`0.4.0`) for new features, major (`1.0.0`) for breaking changes.
 
 `pyproject.toml` is the only place to change it. `cableprobe.__version__` (and
@@ -56,9 +56,9 @@ a hardcoded version string back to `cableprobe/__init__.py`.
 
 ```bash
 git checkout main && git pull
-git checkout -b release-0.3.5
-git commit -am "Bump version to 0.3.5"
-git push -u origin release-0.3.5
+git checkout -b release-0.3.6
+git commit -am "Bump version to 0.3.6"
+git push -u origin release-0.3.6
 # open PR, merge to main
 ```
 
@@ -78,15 +78,15 @@ rm -rf dist build            # don't commit these; they're gitignored
 git checkout main && git pull
 
 # annotated tag matching the pyproject version, prefixed with "v"
-git tag -a v0.3.5 -m "CableProbe 0.3.5"
-git push origin v0.3.5
+git tag -a v0.3.6 -m "CableProbe 0.3.6"
+git push origin v0.3.6
 
 # create the GitHub Release -> triggers the publish workflow
-gh release create v0.3.5 --title "v0.3.5" --notes "What changed in this release."
+gh release create v0.3.6 --title "v0.3.6" --notes "What changed in this release."
 ```
 
 No `gh`? Do the release by hand at
-`https://github.com/rosscooney/CableProbe/releases/new?tag=v0.3.5` — set the
+`https://github.com/rosscooney/CableProbe/releases/new?tag=v0.3.6` — set the
 title, write the notes, click **Publish release**.
 
 ### 5. Watch it publish
@@ -98,7 +98,7 @@ gh run watch --exit-status "$(gh run list --workflow python-publish.yml --limit 
 Or open the **Actions** tab on GitHub. When it's green:
 
 ```bash
-pipx install "cableprobe==0.3.5"     # or: pip install --upgrade cableprobe
+pipx install "cableprobe==0.3.6"     # or: pip install --upgrade cableprobe
 cableprobe --version
 ```
 
@@ -114,5 +114,5 @@ cableprobe --version
   `pyproject.toml` / packaging.
 
 A failed release can be retried: delete the GitHub Release and its tag
-(`git push origin :refs/tags/v0.3.5` and delete it on GitHub), fix the problem,
+(`git push origin :refs/tags/v0.3.6` and delete it on GitHub), fix the problem,
 then repeat from step 4.

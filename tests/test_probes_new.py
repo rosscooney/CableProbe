@@ -431,9 +431,88 @@ def test_parse_proc_net_tcp6_ipv6_decode():
 
 
 def test_decode_proc_net_address_edges():
-    assert _decode_proc_net_address("0100007F:0016", ipv6=False) == "127.0.0.1:22"
+    assert _decode_proc_net_address("0100007F:0016", ipv6=False) == ("127.0.0.1:22", 22)
     # malformed -> returned unchanged rather than raising
-    assert _decode_proc_net_address("zzzz", ipv6=False) == "zzzz"
+    assert _decode_proc_net_address("zzzz", ipv6=False) == ("zzzz", None)
+
+
+PROC_NET_TCP_EPHEMERAL = """\
+  sl  local_address rem_address   st ... uid ... inode
+   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 100 1 0000 100 0 0 10 0
+   1: 00000000:D2A9 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 200 1 0000 100 0 0 10 0
+   2: 00000000:1F41 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 300 1 0000 100 0 0 10 0
+"""
+
+
+def test_parse_proc_net_tcp_drops_ephemeral_ports():
+    # 0x0016=22 (kept), 0xD2A9=53929 (ephemeral, dropped), 0x1F41=8001 (kept)
+    out = parse_proc_net_tcp(PROC_NET_TCP_EPHEMERAL)
+    ports = sorted(o.attributes["port"] for o in out)
+    assert ports == [22, 8001]
+    # a custom lower bound still works
+    out2 = parse_proc_net_tcp(PROC_NET_TCP_EPHEMERAL, ephemeral_min=8000)
+    assert sorted(o.attributes["port"] for o in out2) == [22]
+
+
+def test_ephemeral_port_min_reads_sysctl(tmp_path):
+    from cableprobe.probes.network_state import DEFAULT_EPHEMERAL_MIN, ephemeral_port_min
+
+    f = tmp_path / "range"
+    f.write_text("40000\t60999\n", encoding="utf-8")
+    assert ephemeral_port_min(str(f)) == 40000
+    assert ephemeral_port_min(str(tmp_path / "missing")) == DEFAULT_EPHEMERAL_MIN
+
+
+def test_process_probe_skips_kernel_threads():
+    from cableprobe.probes.processes import _is_kernel_thread
+
+    assert _is_kernel_thread(2, 0, "kthreadd") is True
+    assert _is_kernel_thread(2125090, 2, "kworker/3:3-pm") is True
+    assert _is_kernel_thread(999, 999, "kworker/u8:1") is True  # prefix fallback
+    assert _is_kernel_thread(1234, 1, "sshd") is False
+    assert _is_kernel_thread(1234, 1000, "python3") is False
+
+
+def test_input_probe_dedupes_event_char_nodes(monkeypatch):
+    from cableprobe.probes import input_devices
+    from cableprobe.probes.input_devices import InputDeviceProbe
+
+    class FakeCtx:
+        def list_devices(self, subsystem):
+            return [
+                FakeUdevDevice(
+                    {
+                        "NAME": '"USB Keyboard"',
+                        "ID_INPUT": "1",
+                        "ID_INPUT_KEYBOARD": "1",
+                        "DEVPATH": "/d/input/input5",
+                        "ID_BUS": "usb",
+                    },
+                    sys_name="input5",
+                ),
+                FakeUdevDevice(
+                    {
+                        "ID_MODEL": "USB_Keyboard",
+                        "ID_INPUT": "1",
+                        "ID_INPUT_KEYBOARD": "1",
+                        "DEVPATH": "/d/input/input5/event4",
+                        "DEVNAME": "/dev/input/event4",
+                    },
+                    sys_name="event4",
+                ),
+                FakeUdevDevice(
+                    {"DEVPATH": "/d/input/input5/mouse0", "DEVNAME": "/dev/input/mouse0"},
+                    sys_name="mouse0",
+                ),
+            ]
+
+    monkeypatch.setattr(input_devices, "pyudev", object())
+    monkeypatch.setattr(input_devices, "udev_context", lambda: FakeCtx())
+
+    out = InputDeviceProbe(_CFG, 0.0).snapshot()
+    assert [o.identity for o in out] == ["/d/input/input5"]
+    assert out[0].attributes["ID_INPUT_KEYBOARD"] == "1"
+    assert out[0].label == "input device: USB Keyboard"
 
 
 def test_decode_le_ipv4_bad_input_is_returned_unchanged():

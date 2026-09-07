@@ -60,7 +60,7 @@ Type-C port, and simply skips otherwise.
 | `mounts`          | Filesystem mounts backed by a device or under removable-media paths.             |
 | `network`         | Network interfaces, drivers, USB-ness, addresses.                                |
 | `routing`         | Default route and DNS resolvers (gateway / resolver hijack).                     |
-| `listeners`       | TCP sockets in `LISTEN` state (with owning process when `ss` is present).        |
+| `listeners`       | TCP `LISTEN` sockets on fixed (non-ephemeral) ports; owning process when `ss` is present. |
 | `input`           | Input / HID devices (keyboards, mice, tablets).                                  |
 | `serial`          | Serial / modem (TTY) devices, including USB serial (CDC-ACM, FTDI, cp210x).      |
 | `audio`           | Audio (sound-card) devices, including USB audio class.                           |
@@ -69,7 +69,7 @@ Type-C port, and simply skips otherwise.
 | `kernel_modules`  | Loaded kernel modules — catches gadget drivers loaded on connect.                |
 | `wifi_scan`       | Wi-Fi APs in range (an implant cable may run its own AP). Active scan, boundary-only. |
 | `keystroke_cadence` | Key-press *timing* per input device — flags superhuman / robotic typing.       |
-| `process`         | Processes started after the session began.                                       |
+| `process`         | New userspace processes started after the session began (kernel threads excluded). |
 | `kernel_log`      | USB-relevant kernel / journal lines emitted during the session.                  |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
@@ -127,7 +127,7 @@ work, but the live probes are unavailable.
 # 1a. pipx — to the latest *published* release on PyPI
 pipx upgrade cableprobe
 pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.4    # pin / roll back to a specific release
+pipx install --force cableprobe==0.3.5    # pin / roll back to a specific release
 
 # 1b. pipx — to the latest development code (main), ahead of the last release
 pipx install --force "git+https://github.com/rosscooney/CableProbe"
@@ -149,7 +149,7 @@ cableprobe check
 ```
 
 `pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.4` means there is no newer release
+`cableprobe is already at latest version 0.3.5` means there is no newer release
 — publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
 use the `git+https://…` form above to track `main`. If a new version drops a
 probe or changes report fields it is called out in the GitHub release notes;
@@ -251,7 +251,7 @@ a phase *delta* and raises a finding:
 
 Match keys: `change`, `kind`, `first_seen_phase`, `reverted_after_disconnect`,
 `transient`, `label_regex`, `event_action`, and `attributes.all` / `attributes.any`
-(conditions: `equals`, `not_equals`, `exists`, `contains`, `regex`).
+(conditions: `equals`, `not_equals`, `exists`, `contains`, `not_contains`, `regex`).
 
 ## Report structure
 

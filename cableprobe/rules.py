@@ -35,6 +35,7 @@ class AttributeCondition(BaseModel):
     not_equals: str | None = None
     exists: bool | None = None
     contains: str | None = None
+    not_contains: str | None = None
     regex: str | None = None
 
     def evaluate(self, attributes: dict[str, Any]) -> bool:
@@ -49,6 +50,8 @@ class AttributeCondition(BaseModel):
         if self.not_equals is not None and svalue == self.not_equals:
             return False
         if self.contains is not None and self.contains.lower() not in svalue.lower():
+            return False
+        if self.not_contains is not None and self.not_contains.lower() in svalue.lower():
             return False
         if self.regex is not None and not re.search(self.regex, svalue, re.IGNORECASE):
             return False

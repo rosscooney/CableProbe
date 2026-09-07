@@ -32,9 +32,17 @@ log = get_logger("probe.network_state")
 PROC_NET_ROUTE = "/proc/net/route"
 PROC_NET_TCP = "/proc/net/tcp"
 PROC_NET_TCP6 = "/proc/net/tcp6"
+PROC_IP_LOCAL_PORT_RANGE = "/proc/sys/net/ipv4/ip_local_port_range"
 ETC_RESOLV_CONF = "/etc/resolv.conf"
 
 _TCP_LISTEN = "0A"  # state code for LISTEN in /proc/net/tcp{,6}
+
+#: Fallback lower bound of the ephemeral port range (Linux default). Sockets
+#: that LISTEN on a port at or above this are almost always short-lived
+#: framework noise (RPC, peer discovery, IDE remote helpers, ...) rather than a
+#: service -- and no implant would bind a backdoor to a port that changes on
+#: every restart -- so they are dropped to keep the report signal-dense.
+DEFAULT_EPHEMERAL_MIN = 32768
 
 
 # --------------------------------------------------------------------------
@@ -164,12 +172,14 @@ class RoutingProbe(Probe):
 # --------------------------------------------------------------------------
 
 
-def _decode_proc_net_address(hex_addr: str, *, ipv6: bool) -> str:
+def _decode_proc_net_address(hex_addr: str, *, ipv6: bool) -> tuple[str, int | None]:
+    """``<hex ip>:<hex port>`` -> (``ip:port`` string, port number)."""
+
     addr, _, port = hex_addr.partition(":")
     try:
         port_num = int(port, 16)
     except ValueError:
-        return hex_addr
+        return hex_addr, None
     try:
         if ipv6:
             packed = bytes.fromhex(addr)
@@ -178,15 +188,21 @@ def _decode_proc_net_address(hex_addr: str, *, ipv6: bool) -> str:
                 packed[i : i + 4][::-1] for i in range(0, len(packed), 4)
             )
             ip = socket.inet_ntop(socket.AF_INET6, packed)
-            return f"[{ip}]:{port_num}"
+            return f"[{ip}]:{port_num}", port_num
         ip = socket.inet_ntoa(struct.pack("<L", int(addr, 16)))
     except (ValueError, OSError):
-        return hex_addr
-    return f"{ip}:{port_num}"
+        return hex_addr, port_num
+    return f"{ip}:{port_num}", port_num
 
 
-def parse_proc_net_tcp(text: str, *, ipv6: bool = False) -> list[Observation]:
-    """Parse ``/proc/net/tcp`` or ``/proc/net/tcp6`` -> LISTEN socket observations."""
+def parse_proc_net_tcp(
+    text: str, *, ipv6: bool = False, ephemeral_min: int = DEFAULT_EPHEMERAL_MIN
+) -> list[Observation]:
+    """Parse ``/proc/net/tcp`` or ``/proc/net/tcp6`` -> LISTEN socket observations.
+
+    Sockets listening on an ephemeral-range port (>= ``ephemeral_min``) are
+    skipped -- they churn on their own and never carry a backdoor signal.
+    """
 
     observations: list[Observation] = []
     for line in text.splitlines()[1:]:
@@ -196,7 +212,9 @@ def parse_proc_net_tcp(text: str, *, ipv6: bool = False) -> list[Observation]:
         local, state, uid, inode = fields[1], fields[3], fields[7], fields[9]
         if state != _TCP_LISTEN:
             continue
-        endpoint = _decode_proc_net_address(local, ipv6=ipv6)
+        endpoint, port = _decode_proc_net_address(local, ipv6=ipv6)
+        if port is not None and port >= ephemeral_min:
+            continue
         proto = "tcp6" if ipv6 else "tcp"
         observations.append(
             Observation(
@@ -206,12 +224,23 @@ def parse_proc_net_tcp(text: str, *, ipv6: bool = False) -> list[Observation]:
                 attributes={
                     "protocol": proto,
                     "endpoint": endpoint,
+                    "port": port,
                     "uid": _int(uid),
                     "inode": inode,
                 },
             )
         )
     return observations
+
+
+def ephemeral_port_min(path: str = PROC_IP_LOCAL_PORT_RANGE) -> int:
+    """Lower bound of the kernel's ephemeral port range, or the default."""
+
+    try:
+        lo = Path(path).read_text(encoding="utf-8").split()[0]
+        return int(lo)
+    except (OSError, ValueError, IndexError):
+        return DEFAULT_EPHEMERAL_MIN
 
 
 def annotate_with_ss(observations: list[Observation], ss_output: str) -> None:
@@ -248,15 +277,19 @@ class ListenerProbe(Probe):
 
     def snapshot(self) -> list[Observation]:
         observations: list[Observation] = []
+        ephemeral_min = ephemeral_port_min()
         tcp = Path(PROC_NET_TCP)
         if tcp.exists():
             observations += parse_proc_net_tcp(
-                tcp.read_text(encoding="utf-8", errors="ignore")
+                tcp.read_text(encoding="utf-8", errors="ignore"),
+                ephemeral_min=ephemeral_min,
             )
         tcp6 = Path(PROC_NET_TCP6)
         if tcp6.exists():
             observations += parse_proc_net_tcp(
-                tcp6.read_text(encoding="utf-8", errors="ignore"), ipv6=True
+                tcp6.read_text(encoding="utf-8", errors="ignore"),
+                ipv6=True,
+                ephemeral_min=ephemeral_min,
             )
         if observations and have_tool("ss"):
             code, out, _ = run_command(["ss", "-tlnpH"], timeout=5.0)

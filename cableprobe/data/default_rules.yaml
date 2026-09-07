@@ -19,7 +19,7 @@
 #   label_regex:           regex (case-insensitive) against the delta label
 #   event_action:          add | remove | bind | ...  (requires a related event)
 #   attributes:
-#     all: [ {key, equals|not_equals|exists|contains|regex}, ... ]
+#     all: [ {key, equals|not_equals|exists|contains|not_contains|regex}, ... ]
 #     any: [ ... ]
 #
 # severity: info | low | medium | high | critical
@@ -75,15 +75,24 @@ rules:
           - { key: capabilities, contains: tablet }
 
   - id: hid-generic-appeared-on-connect
-    title: Input/HID device appeared while the unknown cable was connected
+    title: Non-keyboard/pointer HID device appeared while the unknown cable was connected
     severity: medium
     rationale: >
-      Any human-interface device that appears only when the cable is connected
-      is unexpected for a plain charge/data cable and warrants inspection.
+      A human-interface device that is not a plain keyboard or pointer (a
+      consumer-control collection, a vendor HID, ...) appearing only when the
+      cable is connected is unexpected for a charge/data cable. Keyboards and
+      pointers have their own higher-severity rules, so this does not
+      double-report them.
     match:
       change: appeared
       first_seen_phase: test
       kind: [input_device, hid_device]
+      attributes:
+        all:
+          - { key: ID_INPUT_KEYBOARD, not_equals: "1" }
+          - { key: ID_INPUT_MOUSE, not_equals: "1" }
+          - { key: capabilities, not_contains: keyboard }
+          - { key: capabilities, not_contains: mouse }
 
   - id: network-interface-appeared-on-connect
     title: Network interface appeared while the unknown cable was connected
@@ -483,11 +492,14 @@ rules:
       label_regex: "DNS resolvers"
 
   - id: new-listener-on-connect
-    title: A process started listening on a TCP port while the cable was connected
-    severity: medium
+    title: A process started listening on a fixed TCP port while the cable was connected
+    severity: low
     rationale: >
-      A new listening socket appearing in correlation with the cable can be a
-      management/callback service brought up by a helper the cable triggered.
+      A new listening socket on a non-ephemeral port appearing in correlation
+      with the cable can be a management/callback service brought up by a helper
+      the cable triggered. Ephemeral-range ports (RPC, peer discovery, IDE
+      helpers) are already filtered out by the probe; ordinary service restarts
+      can still land here, so treat it as a lead, not a verdict.
     match:
       change: appeared
       first_seen_phase: test
