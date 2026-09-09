@@ -175,7 +175,13 @@ def _transient_deltas(
     baseline: dict[tuple[str, str], Observation],
     test_events: list[ProbeEvent],
 ) -> list[Delta]:
-    """Devices seen via an ADD event during TEST but never in an end snapshot."""
+    """Devices that were both ADDED and REMOVED during TEST and never landed in
+    an end-of-phase snapshot - a genuine plug-and-vanish.
+
+    A device that was only added (and stays, or is removed later in post-test)
+    is not transient; if a snapshot probe missed it that is a keying problem,
+    not a short-lived payload, and flagging it just adds noise.
+    """
 
     known = {(d.kind, d.identity) for d in existing}
     removed_keys: set[tuple[str, str]] = set()
@@ -192,6 +198,8 @@ def _transient_deltas(
             continue
         if not any(e.action in _ADD_ACTIONS for e in events):
             continue
+        if key not in removed_keys:
+            continue
         known.add(key)
         kind, identity = key
         first_add = next(e for e in events if e.action in _ADD_ACTIONS)
@@ -207,7 +215,7 @@ def _transient_deltas(
                     PHASE_TEST: False,
                     PHASE_POST_TEST: False,
                 },
-                reverted_after_disconnect=key in removed_keys,
+                reverted_after_disconnect=True,  # add + remove seen within TEST
                 transient=True,
                 attributes=first_add.attributes,
                 related_events=events,

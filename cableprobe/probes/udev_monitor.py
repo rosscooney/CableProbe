@@ -39,6 +39,10 @@ except Exception:  # noqa: BLE001
 
 log = get_logger("probe.udev")
 
+# Only these udev subsystems are reported. Plugging in one USB device brings up
+# a swarm of kernel-internal sysfs objects (scsi_device, scsi_disk, bsg, bdi,
+# scsi_generic, ...) that are not devices in any meaningful sense; matching
+# events to a known subsystem here filters them out.
 _SUBSYSTEM_KIND = {
     "usb": KIND_USB_DEVICE,
     "block": KIND_BLOCK_DEVICE,
@@ -52,7 +56,19 @@ _SUBSYSTEM_KIND = {
     "pci": KIND_PCI_DEVICE,
     "thunderbolt": KIND_PCI_DEVICE,
     "typec": KIND_USB_PD,
+    "bluetooth": KIND_USB_DEVICE,
 }
+
+
+def event_is_interesting(subsystem: str | None, devtype: str | None) -> bool:
+    """False for subsystems with no probe, and for block partitions (the disk
+    they belong to is reported on its own)."""
+
+    if subsystem not in _SUBSYSTEM_KIND:
+        return False
+    if subsystem == "block" and devtype == "partition":
+        return False
+    return True
 
 _INTERESTING_ATTR_KEYS = (
     "ID_VENDOR",
@@ -193,6 +209,8 @@ class UdevMonitorProbe(Probe):
                 time.sleep(0.1)  # avoid a hot spin if poll keeps failing
                 continue
             if device is None:
+                continue
+            if not event_is_interesting(device.subsystem, device.get("DEVTYPE")):
                 continue
             try:
                 event = self._to_event(device)

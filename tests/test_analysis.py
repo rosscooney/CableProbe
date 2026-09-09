@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from cableprobe.analysis import analyse, build_summary
 from cableprobe.models import (
+    KIND_BLOCK_DEVICE,
     KIND_INPUT_DEVICE,
     KIND_NETWORK_INTERFACE,
     KIND_USB_DEVICE,
@@ -105,6 +106,23 @@ def test_transient_device_from_events(phase_builder):
     assert delta.change == "appeared"
     assert delta.first_seen_phase == PHASE_TEST
     assert delta.reverted_after_disconnect is True
+
+
+def test_add_only_event_is_not_transient(phase_builder):
+    # a USB disk fires a burst of `add` events (scsi_*, bsg, ...) and stays; it
+    # is removed only in post-test. That is not a plug-and-vanish.
+    disk = obs(KIND_BLOCK_DEVICE, "block:SERIAL1", "the disk")
+    phases = phase_builder(
+        baseline_end=[],
+        test_end=[disk],
+        post_end=[],
+        test_events=[
+            event("add", KIND_BLOCK_DEVICE, "TOSHIBA_MODEL", "TOSHIBA_MODEL"),
+        ],
+    )
+    deltas = analyse(phases)
+    # one normal "appeared" for the disk; NO transient delta for the stray add
+    assert [(d.identity, d.transient) for d in deltas] == [("block:SERIAL1", False)]
 
 
 def test_post_test_only_appearance(phase_builder):

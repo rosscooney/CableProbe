@@ -935,6 +935,19 @@ def test_audio_from_udev_skips_non_card_nodes():
 # --------------------------------------------------------------------------
 
 
+def test_udev_event_is_interesting_filters_kernel_internal_subsystems():
+    from cableprobe.probes.udev_monitor import event_is_interesting
+
+    assert event_is_interesting("usb", "usb_device") is True
+    assert event_is_interesting("block", "disk") is True
+    assert event_is_interesting("net", None) is True
+    # the swarm a USB disk brings up
+    for s in ("scsi_device", "scsi_disk", "scsi_generic", "bsg", "bdi"):
+        assert event_is_interesting(s, None) is False
+    # block partitions are covered by their parent disk
+    assert event_is_interesting("block", "partition") is False
+
+
 def test_oui_family_groups_locally_administered_bssids():
     from cableprobe.probes.wifi_scan import oui_family
 

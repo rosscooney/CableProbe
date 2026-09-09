@@ -24,6 +24,16 @@ Each release is also published to
 
 ### Changed
 
+- `udev_monitor` only reports events for subsystems that map to a real device
+  kind. Plugging in one USB disk fires a swarm of kernel-internal `add` events
+  (`scsi_device`, `scsi_disk`, `scsi_generic`, `bsg`, `bdi`, …) that were being
+  turned into `<subsystem>_device` "transient devices"; block-device partition
+  events are dropped too (the disk covers them).
+- A delta is `transient` only when the device was **both added and removed
+  within the same phase** — a genuine plug-and-vanish. A device that is added
+  and then stays (or is removed later, in post-test) is handled by the normal
+  snapshot comparison. Together with the `udev_monitor` change this takes an
+  external-USB-disk scan from ~20 findings to 4.
 - CI: the publish workflow's `actions/*` steps bumped to the Node 24 majors
   (checkout v7, setup-python v7, upload-artifact v7, download-artifact v8),
   clearing the "Node.js 20 is deprecated" warning. No effect on the package.
