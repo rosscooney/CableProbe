@@ -157,6 +157,26 @@ def _nmcli_signal_to_dbm(value: str) -> float | None:
 # --------------------------------------------------------------------------
 
 
+def oui_family(bssid: str) -> str:
+    """A coarse "same physical AP" key for a BSSID.
+
+    Enterprise / mesh APs (UniFi, Aruba, ...) broadcast many BSSIDs per physical
+    unit - one per band, per SSID, per virtual AP - and a scan sees a rotating
+    subset each time, so BSSID-level tracking is hopeless. The vendor OUI with
+    the multicast + locally-administered bits of the first octet cleared groups
+    ``bc:30:d9:85:…`` and ``be:30:d9:a5:…`` (the same UniFi AP) together.
+    """
+
+    parts = bssid.lower().split(":")
+    if len(parts) != 6:
+        return bssid.lower()
+    try:
+        first = int(parts[0], 16) & 0xFC
+    except ValueError:
+        return bssid.lower()
+    return f"{first:02x}:{parts[1]}:{parts[2]}"
+
+
 def _ap_observation(ap: dict, interface: str) -> Observation:
     signal = ap.get("signal_dbm")
     channel = ap.get("channel") or _channel_for_freq(ap.get("freq"))
@@ -185,6 +205,13 @@ class WifiScanProbe(Probe):
     description = "Wi-Fi access points in range (a cable implant may run its own AP)"
     # An active scan disrupts the Wi-Fi association; only run it at phase edges.
     samples_periodically = False
+
+    def __init__(self, config, session_start: float) -> None:
+        super().__init__(config, session_start)
+        #: OUI-families (see ``oui_family``) seen in any earlier scan this
+        #: session. An AP whose family is already here is an existing network on
+        #: the premises, not something the cable brought.
+        self._seen_families: set[str] = set()
 
     def _tool(self) -> str | None:
         if have_tool("iw"):
@@ -243,4 +270,12 @@ class WifiScanProbe(Probe):
                     continue
                 seen.add(obs.identity)
                 observations.append(obs)
+
+        # Mark APs whose OUI-family was not present in any earlier scan. Done
+        # against a frozen copy so every BSSID of a genuinely new AP is flagged.
+        prior = frozenset(self._seen_families)
+        for obs in observations:
+            family = oui_family(obs.attributes.get("bssid", ""))
+            obs.attributes["family_new_this_session"] = family not in prior
+            self._seen_families.add(family)
         return observations

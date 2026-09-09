@@ -259,24 +259,41 @@ def test_removable_mount_rule_is_high():
     assert hit.severity == "high"
 
 
-def test_wifi_ap_rule_needs_strong_and_reverted():
+def test_wifi_ap_rule_needs_strong_reverted_and_new_vendor():
     rs = RuleSet.default()
 
-    strong_reverted = _delta(
-        KIND_WIFI_AP, "wifi:aa:bb:cc:dd:ee:ff", strong_signal="True", reverted=True
+    hit = _delta(
+        KIND_WIFI_AP,
+        "wifi:aa:bb:cc:dd:ee:ff",
+        strong_signal="True",
+        reverted=True,
+        family_new_this_session="True",
     )
-    ids = {f.rule_id: f.severity for f in rs.evaluate([strong_reverted])}
+    ids = {f.rule_id: f.severity for f in rs.evaluate([hit])}
     assert ids.get("strong-wifi-ap-appeared-and-reverted") == "high"
 
-    # strong but still there after disconnect -> a fixed AP on the premises, no finding
-    strong_stayed = _delta(
-        KIND_WIFI_AP, "wifi:11:22:33:44:55:66", strong_signal="True", reverted=False
+    # a rotating BSSID of an AP whose vendor was already at baseline -> no finding
+    known_vendor = _delta(
+        KIND_WIFI_AP,
+        "wifi:be:30:d9:a5:dc:eb",
+        strong_signal="True",
+        reverted=True,
+        family_new_this_session="False",
     )
-    assert rs.evaluate([strong_stayed]) == []
+    assert rs.evaluate([known_vendor]) == []
 
-    # a weak AP drifting through -> no finding at all (the "any new AP" rule is gone)
-    weak = _delta(KIND_WIFI_AP, "wifi:99:88:77:66:55:44", strong_signal="False")
-    assert rs.evaluate([weak]) == []
+    # strong + new vendor but still there after disconnect -> no finding
+    stayed = _delta(
+        KIND_WIFI_AP,
+        "wifi:11:22:33:44:55:66",
+        strong_signal="True",
+        reverted=False,
+        family_new_this_session="True",
+    )
+    assert rs.evaluate([stayed]) == []
+
+    # weak -> no finding (the "any new AP" catch-all is gone)
+    assert rs.evaluate([_delta(KIND_WIFI_AP, "wifi:9:9:9:9:9:9", strong_signal="False")]) == []
 
 
 def test_keystroke_injection_is_critical():

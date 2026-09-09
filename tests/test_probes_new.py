@@ -935,6 +935,15 @@ def test_audio_from_udev_skips_non_card_nodes():
 # --------------------------------------------------------------------------
 
 
+def test_oui_family_groups_locally_administered_bssids():
+    from cableprobe.probes.wifi_scan import oui_family
+
+    assert oui_family("bc:30:d9:85:dc:eb") == oui_family("be:30:d9:a5:dc:ec")
+    assert oui_family("cc:d4:2e:17:ed:cf") == oui_family("ce:d4:2e:27:ed:de")
+    assert oui_family("bc:30:d9:00:00:00") != oui_family("cc:d4:2e:00:00:00")
+    assert oui_family("garbage") == "garbage"
+
+
 def test_wifi_scan_probe_snapshot_uses_iw(monkeypatch):
     from cableprobe.probes import wifi_scan
 
@@ -945,9 +954,14 @@ def test_wifi_scan_probe_snapshot_uses_iw(monkeypatch):
     )
     probe = wifi_scan.WifiScanProbe(_CFG, 0.0)
     assert probe.availability().ok is True
-    out = probe.snapshot()
-    assert {o.kind for o in out} == {KIND_WIFI_AP}
-    assert any(o.attributes["strong_signal"] for o in out)
+
+    first = probe.snapshot()
+    assert {o.kind for o in first} == {KIND_WIFI_AP}
+    assert all(o.attributes["family_new_this_session"] for o in first)
+
+    # a later scan: the same APs are no longer "new this session"
+    second = probe.snapshot()
+    assert not any(o.attributes["family_new_this_session"] for o in second)
 
 
 def test_wifi_scan_probe_unavailable_without_interface(monkeypatch):

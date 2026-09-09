@@ -514,13 +514,15 @@ rules:
   # catch-all was removed because it was pure noise.
 
   - id: strong-wifi-ap-appeared-and-reverted
-    title: A strong Wi-Fi AP appeared on connect and vanished on disconnect
+    title: A strong Wi-Fi AP from a new vendor appeared on connect and vanished on disconnect
     severity: high
     rationale: >
-      An access point that was not in range at baseline, came up strong while
-      the cable was connected, and then went away when the cable was unplugged
-      is behaving exactly like a radio inside the cable or connector. A
-      neighbouring network drifting through would not track the disconnect.
+      An access point whose vendor was not seen at all at baseline, that came up
+      strong while the cable was connected and then went away when the cable was
+      unplugged, is behaving exactly like a radio inside the cable or connector.
+      Existing enterprise / mesh APs on the premises broadcast a rotating set of
+      BSSIDs and are filtered out by matching on the vendor OUI, not the exact
+      BSSID.
     match:
       change: appeared
       first_seen_phase: test
@@ -529,6 +531,7 @@ rules:
       attributes:
         all:
           - { key: strong_signal, equals: "True" }
+          - { key: family_new_this_session, equals: "True" }
 
   # --- keystroke cadence (keystroke_cadence probe) --------------------------
 

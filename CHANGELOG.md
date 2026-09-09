@@ -28,10 +28,12 @@ Each release is also published to
   RF-quiet.
 - The one Wi-Fi rule (`strong-wifi-ap-appeared-and-reverted`, replacing
   `strong-wifi-ap-appeared-on-connect` and the `wifi-ap-appeared-on-connect`
-  catch-all) now requires a strong AP that appeared on connect **and vanished
-  on disconnect** — a fixed AP on your premises never trips it. `signal_dbm` /
-  `strong_signal` / `channel` are treated as volatile, so RSSI drift no longer
-  creates "modified" deltas.
+  catch-all) requires a **strong** AP from a **vendor not seen at baseline**
+  that appeared on connect **and vanished on disconnect**. Enterprise / mesh
+  APs (UniFi, Aruba, …) broadcast a rotating set of BSSIDs per physical unit, so
+  the probe now groups them by vendor OUI (`family_new_this_session`) instead of
+  exact BSSID. `signal_dbm` / `strong_signal` / `channel` are treated as
+  volatile, so RSSI drift no longer creates "modified" deltas.
 - `gadget-driver-module-loaded-on-connect` no longer matches storage drivers
   (`usb_storage` / `uas` / `sg`) — they load for any USB disk, and the block /
   mount probes already flag storage. It now covers network / serial / Bluetooth
