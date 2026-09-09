@@ -322,6 +322,73 @@ def test_phase_progress_bar_runs_through_three_phases():
     p.close()
 
 
+def test_version_key_orders_releases():
+    from cableprobe.cli import _version_key
+
+    assert _version_key("0.3.9") < _version_key("0.3.10")
+    assert _version_key("0.3.10") < _version_key("0.4.0")
+    assert _version_key("0.3.9") == _version_key("0.3.9")
+
+
+def test_upgrade_up_to_date(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli.__version__", "9.9.9")
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "9.9.9")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    result = runner.invoke(app, ["upgrade"])
+    assert result.exit_code == 0
+    assert "up to date" in result.output
+
+
+def test_upgrade_check_reports_available(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli.__version__", "0.3.9")
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "0.3.10")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    monkeypatch.setattr(
+        "cableprobe.cli._upgrade_command",
+        lambda: ["pipx", "upgrade", "cableprobe", "--pip-args=--no-cache-dir"],
+    )
+    result = runner.invoke(app, ["upgrade", "--check"])
+    assert result.exit_code == 10
+    assert "0.3.10 is available" in result.output
+    assert "pipx upgrade cableprobe" in result.output
+
+
+def test_upgrade_runs_the_command(monkeypatch):
+    calls = {}
+    monkeypatch.setattr("cableprobe.cli.__version__", "0.3.9")
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "0.3.10")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    monkeypatch.setattr("cableprobe.cli._upgrade_command", lambda: ["true"])
+
+    class R:
+        returncode = 0
+
+    def fake_run(cmd, check=False):
+        calls["cmd"] = cmd
+        return R()
+
+    monkeypatch.setattr("cableprobe.cli.subprocess.run", fake_run)
+    result = runner.invoke(app, ["upgrade"])
+    assert result.exit_code == 0
+    assert calls["cmd"] == ["true"]
+    assert "upgraded" in result.output
+
+
+def test_upgrade_pypi_unreachable(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: None)
+    result = runner.invoke(app, ["upgrade", "--check"])
+    assert result.exit_code == 1
+    assert "could not reach PyPI" in result.output
+
+
+def test_upgrade_editable_checkout(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "9.9.9")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: True)
+    result = runner.invoke(app, ["upgrade"])
+    assert result.exit_code == 0
+    assert "git pull" in result.output
+
+
 def test_check_mentions_sudo_when_not_root(monkeypatch):
     from pathlib import Path
 

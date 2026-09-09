@@ -10,8 +10,11 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -514,6 +517,116 @@ def link(
 
     typer.secho(f"linked {target} -> {launcher}", fg="green")
     typer.echo("`sudo cableprobe run` now works without a full path.")
+
+
+_PYPI_JSON_URL = "https://pypi.org/pypi/cableprobe/json"
+
+
+def _pypi_latest_version(timeout: float = 6.0) -> str | None:
+    """The newest cableprobe version on PyPI, queried directly (no pip cache)."""
+
+    req = urllib.request.Request(
+        _PYPI_JSON_URL, headers={"User-Agent": f"cableprobe/{__version__}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - https literal
+            data = json.load(resp)
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return None
+    return (data.get("info") or {}).get("version")
+
+
+def _version_key(value: str) -> tuple:
+    key: list = []
+    for part in value.replace("-", ".").replace("+", ".").split("."):
+        key.append((0, int(part)) if part.isdigit() else (1, part))
+    return tuple(key)
+
+
+def _is_editable_install() -> bool:
+    try:
+        from importlib.metadata import distribution
+
+        raw = distribution("cableprobe").read_text("direct_url.json")
+        if raw:
+            return bool(json.loads(raw).get("dir_info", {}).get("editable"))
+    except Exception:  # noqa: BLE001 - metadata may be absent / malformed
+        pass
+    return False
+
+
+def _upgrade_command() -> list[str] | None:
+    """The command that upgrades *this* install, or None if it can't be guessed."""
+
+    if __version__.endswith("+dev") or _is_editable_install():
+        return None  # source checkout - `git pull`
+    prefix = str(Path(sys.prefix).resolve())
+    launcher = str(_launcher_path() or "")
+    if (
+        "/pipx/" in prefix
+        or "/pipx/" in launcher
+        or os.path.basename(os.path.dirname(prefix)) == "venvs"
+    ):
+        return ["pipx", "upgrade", "cableprobe", "--pip-args=--no-cache-dir"]
+    if prefix.startswith("/opt/cableprobe"):
+        return None  # managed by scripts/install.sh
+    return [
+        sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", "cableprobe"
+    ]
+
+
+@app.command()
+def upgrade(
+    check: bool = typer.Option(
+        False, "--check", help="Only report whether an update is available; do not install."
+    ),
+) -> None:
+    """Check PyPI for a newer cableprobe and (unless --check) install it.
+
+    Queries PyPI directly, so it is not fooled by a stale pip index cache the
+    way ``pipx upgrade`` can be.
+    """
+
+    typer.echo(f"installed: {__version__}")
+    latest = _pypi_latest_version()
+    if latest is None:
+        typer.secho("could not reach PyPI to check for updates.", fg="red", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"latest on PyPI: {latest}")
+
+    if __version__.endswith("+dev") or _is_editable_install():
+        typer.secho(
+            "this is a source / editable checkout - `git pull` to update.",
+            fg="bright_black",
+        )
+        raise typer.Exit(code=0)
+
+    if _version_key(latest) <= _version_key(__version__):
+        typer.secho("cableprobe is up to date.", fg="green")
+        raise typer.Exit(code=0)
+
+    typer.secho(f"\ncableprobe {latest} is available.", fg="yellow", bold=True)
+    cmd = _upgrade_command()
+    if check or cmd is None:
+        if cmd is None:
+            typer.echo(
+                "this install is managed elsewhere (scripts/install.sh, a distro"
+                " package, ...) - upgrade it the same way you installed it."
+            )
+        else:
+            typer.echo(f"to upgrade:  {shlex.join(cmd)}")
+        raise typer.Exit(code=10)
+
+    typer.secho(f"running: {shlex.join(cmd)}\n", fg="bright_black")
+    try:
+        result = subprocess.run(cmd, check=False)  # noqa: S603 - argv list, no shell
+    except FileNotFoundError:
+        typer.secho(f"error: {cmd[0]} not found on PATH.", fg="red", err=True)
+        raise typer.Exit(code=1) from None
+    if result.returncode != 0:
+        typer.secho("upgrade command failed - see its output above.", fg="red", err=True)
+        raise typer.Exit(code=result.returncode)
+    typer.secho(f"\nupgraded. run `cableprobe --version` to confirm.", fg="green")
 
 
 @app.command()

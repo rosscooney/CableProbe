@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- `cableprobe upgrade` — checks PyPI directly for a newer release (so a stale
+  pip index cache can't hide it), works out how this copy was installed (pipx /
+  `pip` / `scripts/install.sh` / source checkout) and runs the right upgrade
+  command with the cache bypassed. `--check` reports without installing.
+
 ### Changed
 
 - `cableprobe link` now escalates itself: run it without `sudo` and it re-execs

@@ -130,37 +130,40 @@ work, but the live probes are unavailable.
 ## Upgrading
 
 ```bash
-# 1a. pipx — to the latest *published* release on PyPI
-pipx upgrade cableprobe
-pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.9    # pin / roll back to a specific release
-
-# 1b. pipx — to the latest development code (main), ahead of the last release
-pipx install --force "git+https://github.com/rosscooney/CableProbe"
-pipx install --force "cableprobe @ git+https://github.com/rosscooney/CableProbe@main"
-
-# 2. scripts/install.sh — re-run against a fresh checkout; reinstalls
-#    into /opt/cableprobe/venv in place
-git -C cableprobe pull && sudo ./cableprobe/scripts/install.sh
-
-# 3. development checkout
-git pull && pip install -e ".[dev]"
+cableprobe upgrade            # checks PyPI directly, then upgrades this install
+cableprobe upgrade --check    # just report whether a newer version exists
 ```
 
-Check what you have and that the host is still ready afterwards:
+`cableprobe upgrade` queries PyPI itself (so it is not fooled by a stale pip
+index cache the way `pipx upgrade` sometimes is), works out how this copy was
+installed — pipx, `pip`, `scripts/install.sh`, a source checkout — and runs the
+right upgrade with the cache bypassed. Then:
 
 ```bash
 cableprobe --version
 cableprobe check
 ```
 
-`pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.9` means there is no newer release
-— publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
-use the `git+https://…` form above to track `main`. If a new version drops a
-probe or changes report fields it is called out in the GitHub release notes;
-saved `.cableprobe.json` reports from older versions still open with
-`cableprobe report`.
+Doing it by hand instead:
+
+```bash
+# pipx, to the latest release — add --no-cache-dir if it claims you're up to date
+pipx upgrade cableprobe --pip-args=--no-cache-dir
+pipx install --force cableprobe==0.3.9        # pin / roll back to a version
+
+# pipx, to the latest development code (main), ahead of the last release
+pipx install --force "cableprobe @ git+https://github.com/rosscooney/CableProbe@main"
+
+# scripts/install.sh install — re-run it against a fresh checkout
+git -C cableprobe pull && sudo ./cableprobe/scripts/install.sh
+
+# development checkout
+git pull && pip install -e ".[dev]"
+```
+
+If a release drops a probe or changes report fields it is called out in the
+GitHub release notes and [CHANGELOG.md](CHANGELOG.md); saved `.cableprobe.json`
+reports from older versions still open with `cableprobe report`.
 
 ## Usage
 
