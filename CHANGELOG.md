@@ -34,6 +34,9 @@ Each release is also published to
   (HIGH) keeps a rule for RNDIS specifically, which legitimate USB ethernet
   dongles do not use. CRITICAL is now reserved for a gadget that actually took
   over routing / DNS or tunnelled PCIe.
+- A `kernel_message` finding no longer prints "did NOT revert after disconnect"
+  — a log line, once emitted, is in the log for the rest of the session, so that
+  was always true and meaningless.
 - `udev_monitor` only reports events for subsystems that map to a real device
   kind. Plugging in one USB disk fires a swarm of kernel-internal `add` events
   (`scsi_device`, `scsi_disk`, `scsi_generic`, `bsg`, `bdi`, …) that were being

@@ -161,6 +161,20 @@ def test_rndis_kernel_line_is_high_plain_cdc_is_not():
     )
 
 
+def test_kernel_message_finding_omits_revert_line():
+    rs = RuleSet.default()
+    delta = _delta(
+        KIND_KERNEL_MESSAGE,
+        "kmsg:over-current",
+        label="usb usb1-port1: over-current change #1",
+        reverted=False,
+    )
+    (finding,) = [
+        f for f in rs.evaluate([delta]) if f.rule_id == "kernel-enumeration-errors"
+    ]
+    assert not any("revert" in line.lower() for line in finding.evidence)
+
+
 def test_findings_consolidate_by_rule():
     rs = RuleSet.default()
     lines = [

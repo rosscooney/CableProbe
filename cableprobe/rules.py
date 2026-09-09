@@ -131,7 +131,12 @@ class Rule(BaseModel):
             f"{delta.kind} '{delta.label}' ({delta.identity}) {delta.change}",
             f"present in: {present_phases}" if present_phases else "present in: (transient only)",
         ]
-        if delta.reverted_after_disconnect is not None:
+        # A kernel log line, once emitted, stays in the log for the rest of the
+        # session - "did NOT revert" for one is noise, not signal.
+        if (
+            delta.reverted_after_disconnect is not None
+            and delta.kind != "kernel_message"
+        ):
             evidence.append(
                 "reverted after disconnect"
                 if delta.reverted_after_disconnect
