@@ -19,6 +19,12 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 #: Probe names enabled by default, in a sensible ordering.
+#:
+#: ``wifi_scan`` is deliberately NOT here: on any premises with Wi-Fi it produces
+#: a dozen-plus deltas per session (neighbouring APs drift in and out of scan
+#: range on their own) and it is only meaningful when you specifically suspect
+#: the cable carries a radio *and* can baseline somewhere RF-quiet. Enable it
+#: explicitly for that investigation.
 DEFAULT_PROBES: list[str] = [
     "udev_monitor",
     "usb",
@@ -36,11 +42,13 @@ DEFAULT_PROBES: list[str] = [
     "video",
     "pci",
     "kernel_modules",
-    "wifi_scan",
     "keystroke_cadence",
     "process",
     "kernel_log",
 ]
+
+#: Probes that exist but are off by default (see the note above).
+OPTIONAL_PROBES: list[str] = ["wifi_scan"]
 
 
 class SessionConfig(BaseModel):

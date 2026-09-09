@@ -73,10 +73,11 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
     ),
     (
         "radio",
-        ("wifi-ap",),
-        "A Wi-Fi network appeared nearby while the cable was connected. Some "
-        "attack cables carry their own Wi-Fi so an attacker can control them "
-        "from across the room or building.",
+        ("strong-wifi-ap",),
+        "A strong Wi-Fi network appeared when you connected the cable and "
+        "disappeared when you unplugged it. Some attack cables carry their own "
+        "Wi-Fi so an attacker can control them from across the room or building "
+        "- this is what that looks like.",
     ),
     (
         "power-delivery",
@@ -87,9 +88,9 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
     ),
     (
         "driver",
-        ("gadget-driver-module", "kernel-module-loaded"),
-        "The system loaded a driver for a class of device you were not "
-        "expecting when the cable went in.",
+        ("gadget-driver-module",),
+        "The system loaded a network, serial or Bluetooth driver when the cable "
+        "went in - a plain charge/data cable never makes that happen.",
     ),
     (
         "hub",

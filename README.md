@@ -69,11 +69,11 @@ Type-C port, and simply skips otherwise.
 | `audio`           | Audio (sound-card) devices, including USB audio class.                           |
 | `video`           | video4linux camera / capture devices, including UVC.                             |
 | `pci`             | PCI and Thunderbolt devices (USB4/TBT PCIe-tunnel / DMA surface).                |
-| `kernel_modules`  | Loaded kernel modules — catches gadget drivers loaded on connect.                |
-| `wifi_scan`       | Wi-Fi APs in range (an implant cable may run its own AP). Active scan, boundary-only. |
+| `kernel_modules`  | Loaded kernel modules — catches network / serial / Bluetooth gadget drivers loaded on connect. |
 | `keystroke_cadence` | Key-press *timing* per input device — flags superhuman / robotic typing.       |
 | `process`         | New userspace processes started after the session began (kernel threads excluded). |
 | `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). |
+| `wifi_scan` *(off by default)* | Wi-Fi APs in range. Only useful when you specifically suspect the cable carries a radio **and** can baseline somewhere RF-quiet — on normal premises every session lists a dozen neighbouring APs. Enable it in `probes.enabled`. |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
 Type-C class, no `/sys/bus/pci`, …) are skipped automatically. `cableprobe
@@ -85,13 +85,15 @@ from `probes.enabled` in your config.
 
 Two probes have side effects worth knowing about:
 
-- `wifi_scan` runs an **active** Wi-Fi scan (`iw` / `nmcli`) at each phase
-  boundary, which briefly interrupts any Wi-Fi association on that interface. It
-  never associates with a discovered AP.
 - `keystroke_cadence` reads `/dev/input/event*` for key-press **timing only** —
   the key `code` of every event is discarded before anything is stored, so it
   never learns which keys were pressed. Set `capture_keystroke_timing: false`
   to disable it.
+- `wifi_scan` (opt-in) runs an **active** Wi-Fi scan (`iw` / `nmcli`) at each
+  phase boundary, which briefly interrupts any Wi-Fi association on that
+  interface. It never associates with a discovered AP. With it enabled, the one
+  rule that fires is a *strong* AP that appeared on connect **and disappeared
+  again on disconnect** — a fixed AP on your premises never trips it.
 
 ## Install
 
@@ -214,10 +216,10 @@ session:
   post_test_seconds: 30
   sample_interval_seconds: 2.0
 probes:
-  # default: all probes; list a subset to narrow the session
+  # the default set; list a subset to narrow the session, or add `wifi_scan`
   enabled: [udev_monitor, usb, usb_descriptors, usb_topology, usbc_pd, block,
             mounts, network, routing, listeners, input, serial, audio, video,
-            pci, kernel_modules, wifi_scan, keystroke_cadence, process, kernel_log]
+            pci, kernel_modules, keystroke_cadence, process, kernel_log]
   kernel_log_backend: auto        # auto | journalctl | dmesg
   kernel_log_keywords: []         # extra case-insensitive substrings to keep
   kernel_log_verbose: false       # true => also keep routine enumeration chatter

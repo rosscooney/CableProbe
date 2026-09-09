@@ -156,8 +156,24 @@ def test_kernel_ethernet_gadget_is_critical():
 
 def test_block_device_usb_transport():
     rs = RuleSet.default()
-    findings = rs.evaluate([_delta(KIND_BLOCK_DEVICE, "block:sda", transport="usb")])
-    assert any(f.rule_id == "mass-storage-appeared-on-connect" for f in findings)
+    ids = {
+        f.rule_id
+        for f in rs.evaluate([_delta(KIND_BLOCK_DEVICE, "block:sda", transport="usb")])
+    }
+    assert "mass-storage-appeared-on-connect" in ids
+    # confirmed-USB disk must NOT also trip the generic MEDIUM rule
+    assert "mass-storage-appeared-generic" not in ids
+
+
+def test_block_device_unconfirmed_transport_is_medium_only():
+    rs = RuleSet.default()
+    ids = {
+        f.rule_id
+        for f in rs.evaluate(
+            [_delta(KIND_BLOCK_DEVICE, "block:xvda", transport=None)]
+        )
+    }
+    assert ids == {"mass-storage-appeared-generic"}
 
 
 def test_hid_interface_descriptor_rule_is_high():
@@ -223,12 +239,17 @@ def test_default_route_change_is_critical():
     assert hit.severity == "critical"
 
 
-def test_gadget_module_and_generic_module_rules():
+def test_gadget_module_rule_fires_for_network_not_storage():
     rs = RuleSet.default()
-    gadget = _delta(KIND_KERNEL_MODULE, "kmod:rndis_host", label="kernel module rndis_host")
-    ids = {f.rule_id for f in rs.evaluate([gadget])}
-    assert "gadget-driver-module-loaded-on-connect" in ids
-    assert "kernel-module-loaded-on-connect" in ids
+    net = _delta(KIND_KERNEL_MODULE, "kmod:rndis_host", label="kernel module rndis_host")
+    assert any(
+        f.rule_id == "gadget-driver-module-loaded-on-connect"
+        for f in rs.evaluate([net])
+    )
+    # a USB disk loading usb_storage / sg / uas is expected - no finding
+    for mod in ("usb_storage", "sg", "uas"):
+        storage = _delta(KIND_KERNEL_MODULE, f"kmod:{mod}", label=f"kernel module {mod}")
+        assert rs.evaluate([storage]) == []
 
 
 def test_removable_mount_rule_is_high():
@@ -238,17 +259,24 @@ def test_removable_mount_rule_is_high():
     assert hit.severity == "high"
 
 
-def test_strong_wifi_ap_rule_is_high_weak_is_low():
+def test_wifi_ap_rule_needs_strong_and_reverted():
     rs = RuleSet.default()
-    strong = _delta(KIND_WIFI_AP, "wifi:aa:bb:cc:dd:ee:ff", strong_signal="True")
-    ids = {f.rule_id: f.severity for f in rs.evaluate([strong])}
-    assert ids.get("strong-wifi-ap-appeared-on-connect") == "high"
-    assert ids.get("wifi-ap-appeared-on-connect") == "low"
 
-    weak = _delta(KIND_WIFI_AP, "wifi:11:22:33:44:55:66", strong_signal="False")
-    weak_ids = {f.rule_id for f in rs.evaluate([weak])}
-    assert "strong-wifi-ap-appeared-on-connect" not in weak_ids
-    assert "wifi-ap-appeared-on-connect" in weak_ids
+    strong_reverted = _delta(
+        KIND_WIFI_AP, "wifi:aa:bb:cc:dd:ee:ff", strong_signal="True", reverted=True
+    )
+    ids = {f.rule_id: f.severity for f in rs.evaluate([strong_reverted])}
+    assert ids.get("strong-wifi-ap-appeared-and-reverted") == "high"
+
+    # strong but still there after disconnect -> a fixed AP on the premises, no finding
+    strong_stayed = _delta(
+        KIND_WIFI_AP, "wifi:11:22:33:44:55:66", strong_signal="True", reverted=False
+    )
+    assert rs.evaluate([strong_stayed]) == []
+
+    # a weak AP drifting through -> no finding at all (the "any new AP" rule is gone)
+    weak = _delta(KIND_WIFI_AP, "wifi:99:88:77:66:55:44", strong_signal="False")
+    assert rs.evaluate([weak]) == []
 
 
 def test_keystroke_injection_is_critical():

@@ -134,15 +134,22 @@ rules:
           - { key: removable, equals: "True" }
 
   - id: mass-storage-appeared-generic
-    title: A block device appeared while the unknown cable was connected
+    title: A block device of unconfirmed transport appeared while the cable was connected
     severity: medium
     rationale: >
-      A new block device correlated with the cable connection is unexpected for
-      a plain cable, even if the transport could not be confirmed as USB.
+      A new block device correlated with the cable connection whose transport
+      could NOT be confirmed as USB / hotplug / removable. If it were confirmed
+      the higher-severity rule above would have caught it, so this only fires
+      for the ambiguous case.
     match:
       change: appeared
       first_seen_phase: test
       kind: block_device
+      attributes:
+        all:
+          - { key: transport, not_equals: usb }
+          - { key: hotplug, not_equals: "True" }
+          - { key: removable, not_equals: "True" }
 
   - id: serial-device-appeared-on-connect
     title: Serial / modem device appeared while the unknown cable was connected
@@ -405,29 +412,21 @@ rules:
   # --- host state (kernel_modules / mounts / pci probes) --------------------------
 
   - id: gadget-driver-module-loaded-on-connect
-    title: A network / storage / serial gadget kernel module loaded on connect
+    title: A network / serial / Bluetooth gadget kernel module loaded on connect
     severity: high
     rationale: >
-      Auto-loading of rndis_host, cdc_ncm, cdc_ether, usbnet, usb_storage, uas
-      or usbserial in correlation with the cable indicates the matching gadget
-      class enumerated.
+      Auto-loading of a USB *network* (rndis_host, cdc_ncm, cdc_ether, usbnet,
+      r8152, ax88), *serial* (cdc_acm, usbserial, ftdi_sio, cp210x, ch341,
+      pl2303, option) or *Bluetooth* (btusb) driver in correlation with the
+      cable means the cable enumerated that gadget class - which a plain
+      charge/data cable never does. Storage drivers (usb_storage / uas / sg) are
+      deliberately NOT here: they load for any USB disk, and the block / mount
+      probes already flag storage at high severity.
     match:
       change: appeared
       first_seen_phase: test
       kind: kernel_module
-      label_regex: "rndis|cdc_ncm|cdc_ether|cdc_acm|usbnet|r8152|ax88|usb_storage|\\buas\\b|usbserial|ftdi_sio|cp210x|ch341|pl2303"
-
-  - id: kernel-module-loaded-on-connect
-    title: A kernel module loaded while the unknown cable was connected
-    severity: low
-    rationale: >
-      Any module that loads on connect is worth noting even if it is not a
-      known gadget driver - it is still code entering the kernel because of the
-      cable.
-    match:
-      change: appeared
-      first_seen_phase: test
-      kind: kernel_module
+      label_regex: "rndis|cdc_ncm|cdc_ether|cdc_mbim|usbnet|r8152|ax88|huawei_cdc_ncm|cdc_acm|usbserial|ftdi_sio|cp210x|ch341|pl2303|\\boption\\b|qcserial|btusb|btintel|btbcm"
 
   - id: removable-media-mounted-on-connect
     title: A filesystem was mounted while the unknown cable was connected
@@ -505,33 +504,31 @@ rules:
       first_seen_phase: test
       kind: listening_socket
 
-  # --- Wi-Fi (wifi_scan probe) --------------------------
+  # --- Wi-Fi (wifi_scan probe, off by default) --------------------------
+  #
+  # Wi-Fi scan lists are noisy - neighbouring APs drift in and out of range on
+  # their own, and any AP on your own premises is "strong". The only reliable
+  # signal for a cable that runs its own AP is: a strong AP that was NOT in
+  # range at baseline, appeared on connect, and DISAPPEARED again when the
+  # cable was unplugged. That is the single rule below; the "any new AP"
+  # catch-all was removed because it was pure noise.
 
-  - id: strong-wifi-ap-appeared-on-connect
-    title: A strong Wi-Fi access point appeared while the unknown cable was connected
+  - id: strong-wifi-ap-appeared-and-reverted
+    title: A strong Wi-Fi AP appeared on connect and vanished on disconnect
     severity: high
     rationale: >
-      Several cable implants carry their own radio and bring up a Wi-Fi AP for
-      out-of-band control. An AP that was not in range at baseline and appears
-      with a strong signal on connect may be inside the cable or connector.
+      An access point that was not in range at baseline, came up strong while
+      the cable was connected, and then went away when the cable was unplugged
+      is behaving exactly like a radio inside the cable or connector. A
+      neighbouring network drifting through would not track the disconnect.
     match:
       change: appeared
       first_seen_phase: test
+      reverted_after_disconnect: true
       kind: wifi_ap
       attributes:
         all:
           - { key: strong_signal, equals: "True" }
-
-  - id: wifi-ap-appeared-on-connect
-    title: A new Wi-Fi access point came into range while the cable was connected
-    severity: low
-    rationale: >
-      Lower-confidence: neighbouring networks drift in and out of scan range on
-      their own. Correlate the BSSID and signal with the cable and the location.
-    match:
-      change: appeared
-      first_seen_phase: test
-      kind: wifi_ap
 
   # --- keystroke cadence (keystroke_cadence probe) --------------------------
 

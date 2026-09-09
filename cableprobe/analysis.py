@@ -38,6 +38,10 @@ VOLATILE_KEYS = {
     "refcount",
     "inode",
     "vconn_source",
+    "signal_dbm",
+    "strong_signal",
+    "channel",
+    "freq",
 }
 
 _ADD_ACTIONS = {"add", "bind", "online"}

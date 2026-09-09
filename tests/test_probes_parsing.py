@@ -74,8 +74,11 @@ def test_parse_lsblk_json():
     assert sda.kind == KIND_BLOCK_DEVICE
     assert sda.attributes["transport"] == "usb"
     assert sda.attributes["removable"] is True
-    part = next(o for o in out if o.identity == "block:mmcblk0p1")
-    assert part.attributes["parent"] == "mmcblk0"
+    # partitions are not emitted as their own observation - summarised on the disk
+    assert "block:mmcblk0p1" not in ids
+    disk = next(o for o in out if o.identity == "block:mmcblk0")
+    assert disk.attributes["partitions"] == ["mmcblk0p1"]
+    assert disk.attributes["partition_count"] == 1
 
 
 PROC_INPUT_SAMPLE = """\

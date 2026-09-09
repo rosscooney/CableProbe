@@ -29,9 +29,29 @@ def _walk(nodes: list[dict[str, Any]], parent: str | None = None):
             yield from _walk(children, node.get("name"))
 
 
+def _partition_summary(node: dict[str, Any]) -> list[dict[str, str | None]]:
+    parts: list[dict[str, str | None]] = []
+    for child, _ in _walk(node.get("children") or []):
+        if (child.get("type") or "") == "part":
+            parts.append(
+                {
+                    "name": child.get("name"),
+                    "size": child.get("size"),
+                    "fstype": child.get("fstype"),
+                    "mountpoint": child.get("mountpoint"),
+                }
+            )
+    return parts
+
+
 def parse_lsblk_json(data: dict[str, Any]) -> list[Observation]:
     observations: list[Observation] = []
     for node, parent in _walk(data.get("blockdevices", [])):
+        node_type = node.get("type") or "?"
+        # Partitions are part of their disk, not independently interesting - they
+        # are summarised onto the parent below. (LVM / crypt / md nodes are kept.)
+        if node_type == "part":
+            continue
         name = node.get("name") or "?"
         serial = node.get("serial") or ""
         wwn = node.get("wwn") or ""
@@ -42,9 +62,9 @@ def parse_lsblk_json(data: dict[str, Any]) -> list[Observation]:
             identity = f"block:{wwn}"
         model = (node.get("model") or "").strip()
         vendor = (node.get("vendor") or "").strip()
-        node_type = node.get("type") or "?"
         label_bits = [b for b in (vendor, model) if b] or [name]
         label = f"{node_type} {' '.join(label_bits)} ({node.get('size') or '?'})"
+        partitions = _partition_summary(node)
         observations.append(
             Observation(
                 kind=KIND_BLOCK_DEVICE,
@@ -65,6 +85,8 @@ def parse_lsblk_json(data: dict[str, Any]) -> list[Observation]:
                     "fstype": node.get("fstype"),
                     "mountpoint": node.get("mountpoint"),
                     "parent": parent,
+                    "partitions": [p["name"] for p in partitions] or None,
+                    "partition_count": len(partitions) or None,
                 },
             )
         )

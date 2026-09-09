@@ -19,6 +19,30 @@ Each release is also published to
 
 - This changelog.
 
+### Changed
+
+- **`wifi_scan` is no longer a default probe.** On any premises with Wi-Fi it
+  produced a dozen-plus deltas and findings per session (neighbouring APs drift
+  in and out of scan range on their own). Enable it in `probes.enabled` when you
+  specifically suspect the cable carries a radio and can baseline somewhere
+  RF-quiet.
+- The one Wi-Fi rule (`strong-wifi-ap-appeared-and-reverted`, replacing
+  `strong-wifi-ap-appeared-on-connect` and the `wifi-ap-appeared-on-connect`
+  catch-all) now requires a strong AP that appeared on connect **and vanished
+  on disconnect** — a fixed AP on your premises never trips it. `signal_dbm` /
+  `strong_signal` / `channel` are treated as volatile, so RSSI drift no longer
+  creates "modified" deltas.
+- `gadget-driver-module-loaded-on-connect` no longer matches storage drivers
+  (`usb_storage` / `uas` / `sg`) — they load for any USB disk, and the block /
+  mount probes already flag storage. It now covers network / serial / Bluetooth
+  gadget drivers. The generic `kernel-module-loaded-on-connect` (LOW) rule was
+  removed — for a normal device the modules that load are all expected.
+- `mass-storage-appeared-generic` (MEDIUM) only fires when the transport could
+  NOT be confirmed as USB / hotplug / removable, so a confirmed USB disk gets
+  one HIGH finding instead of HIGH + MEDIUM.
+- `block` probe no longer emits partitions as their own observations — they are
+  summarised (`partitions`, `partition_count`) onto the parent disk.
+
 ## [0.3.7] - 2026-09-07
 
 Less noise on a live host, and an interactive report picker. A HID device on an
