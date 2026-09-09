@@ -35,6 +35,10 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+# For the `power` probe (INA219 over I2C). Linux only.
+power = [
+    "smbus2>=0.4; sys_platform == 'linux'",
+]
 
 [project.urls]
 Homepage = "https://www.cableprobe.com"

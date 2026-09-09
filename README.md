@@ -74,6 +74,7 @@ Type-C port, and simply skips otherwise.
 | `process`         | New userspace processes started after the session began (kernel threads excluded). |
 | `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). |
 | `wifi_scan` *(off by default)* | Wi-Fi APs in range. Only useful when you specifically suspect the cable carries a radio **and** can baseline somewhere RF-quiet — on normal premises every session lists a dozen neighbouring APs. Enable it in `probes.enabled`. |
+| `power` *(off by default)* | Inline USB VBUS voltage / current from an **INA219** on the Pi's I²C bus — the one measurement a cable can't lie about (powered electronics draw tens of mA). Needs the sensor wired up and `pip install 'cableprobe[power]'`. |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
 Type-C class, no `/sys/bus/pci`, …) are skipped automatically. `cableprobe
@@ -270,6 +271,30 @@ a phase *delta* and raises a finding:
 Match keys: `change`, `kind`, `first_seen_phase`, `reverted_after_disconnect`,
 `transient`, `label_regex`, `event_action`, and `attributes.all` / `attributes.any`
 (conditions: `equals`, `not_equals`, `exists`, `contains`, `not_contains`, `regex`).
+
+### Known-implant list and allowlist
+
+Two lookup tables are applied to the findings after the rules run:
+
+- A packaged **known-implant list** of USB vendor:product IDs that off-the-shelf
+  BadUSB tools present by default (Digispark, Bash Bunny arming mode, Teensy,
+  Malduino boards, ESP32 cable implants, …). A match raises its own finding.
+  Most of these tools can be reflashed with a spoofed ID, so a match is a lead,
+  not proof, and a non-match proves nothing. Extend it with
+  `implants_file: my-list.yaml` in the config.
+- An **allowlist** of devices *you* trust. Findings about an allowlisted device
+  are downgraded to `info`, so repeat tests of your own gear stop shouting.
+
+```bash
+cableprobe allow                                    # list
+cableprobe allow --vid 0bda --pid 8153 --serial 750998 --name "Belkin USB-C LAN"
+cableprobe allow --from-report cableprobe-sessions/2026*.json   # add interactively
+cableprobe allow --remove 2
+```
+
+Prefer entries **with a serial** — one without trusts any device presenting that
+vendor:product, including a spoofed one. The allowlist lives at
+`<output_dir>/allowlist.yaml` (override with `allowlist_file:`).
 
 ## Report structure
 

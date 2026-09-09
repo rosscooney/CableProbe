@@ -26,8 +26,9 @@ from cableprobe.models import (
     SystemSnapshot,
     utcnow,
 )
+from cableprobe.knowledge import Allowlist, ImplantList, apply_allowlist
 from cableprobe.probes import Probe, build_probes
-from cableprobe.rules import RuleSet
+from cableprobe.rules import _SEVERITY_RANK, RuleSet
 from cableprobe.system_info import collect_host_info
 
 log = get_logger("session")
@@ -182,6 +183,8 @@ async def run_session(
     prompt_fn: PromptFn | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_tick: Callable[[str, float, float], None] | None = None,
+    implants: ImplantList | None = None,
+    allowlist: Allowlist | None = None,
 ) -> SessionReport:
     """Run baseline / test / post-test and return a structured report."""
 
@@ -229,7 +232,12 @@ async def run_session(
         await _stop_probes(probes)
 
     deltas = analyse(phases)
-    findings = ruleset.evaluate(deltas)
+    findings = list(ruleset.evaluate(deltas))
+    if implants is not None:
+        findings.extend(implants.check(deltas))
+    if allowlist is not None:
+        findings = apply_allowlist(findings, deltas, allowlist)
+    findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True)
     summary = build_summary(phases, deltas, findings)
 
     metadata = SessionMetadata(

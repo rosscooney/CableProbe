@@ -47,8 +47,9 @@ DEFAULT_PROBES: list[str] = [
     "kernel_log",
 ]
 
-#: Probes that exist but are off by default (see the note above).
-OPTIONAL_PROBES: list[str] = ["wifi_scan"]
+#: Probes that exist but are off by default: ``wifi_scan`` (noisy on premises
+#: with Wi-Fi) and ``power`` (needs an INA219 wired up + the ``power`` extra).
+OPTIONAL_PROBES: list[str] = ["wifi_scan", "power"]
 
 
 class SessionConfig(BaseModel):
@@ -97,6 +98,13 @@ class ProbeConfig(BaseModel):
     #: Let the keystroke_cadence probe read /dev/input/event* for key-press
     #: *timing* (never key identity). Set false to disable that probe entirely.
     capture_keystroke_timing: bool = True
+    #: `power` probe (INA219 over I2C) settings.
+    power_i2c_bus: int = 1
+    power_i2c_address: int = 0x40
+    power_shunt_ohms: float = 0.1
+    #: mA above the no-cable baseline that counts as "there is powered
+    #: electronics in the cable".
+    power_alert_ma: int = 8
 
     @field_validator("kernel_log_backend")
     @classmethod
@@ -112,6 +120,11 @@ class Config(BaseModel):
     probes: ProbeConfig = Field(default_factory=ProbeConfig)
     #: Optional path to a YAML rules file. ``None`` means "use packaged defaults".
     rules_file: Path | None = None
+    #: Extra known-implant VID/PID YAML file, merged with the packaged list.
+    implants_file: Path | None = None
+    #: YAML allowlist of devices you trust; their findings are downgraded to
+    #: info. ``None`` -> ``<output_dir>/allowlist.yaml`` if it exists.
+    allowlist_file: Path | None = None
     output_dir: Path = Path("./cableprobe-sessions")
 
     model_config = {"extra": "forbid"}

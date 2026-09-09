@@ -15,6 +15,23 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- **Known-implant list** — a packaged table of USB vendor:product IDs that
+  off-the-shelf BadUSB / implant tools present by default (Digispark, Bash
+  Bunny arming mode, Teensy, Malduino boards, ESP32 cable implants, …). A match
+  raises its own finding. Extend with `implants_file:` in the config.
+- **Allowlist** (`cableprobe allow`) — register devices you trust; findings
+  about them are downgraded to `info`, so repeat tests of your own hardware stop
+  shouting. `--from-report` adds every device seen in a saved report
+  interactively. Lives at `<output_dir>/allowlist.yaml`.
+- **`power` probe** (off by default) — inline USB VBUS voltage / current from an
+  INA219 on the Pi's I²C bus. Powered electronics in a cable draw tens of mA
+  regardless of what the descriptors claim — the one measurement a cable can't
+  spoof. Needs the sensor wired and `pip install 'cableprobe[power]'`. Rules:
+  `cable-draws-power-active-electronics` (HIGH), `usb-bus-voltage-out-of-range`
+  (MEDIUM).
+
 ## [0.3.10] - 2026-09-09
 
 Follow-ups to the `cableprobe link` and upgrade feedback, and one advice-wording

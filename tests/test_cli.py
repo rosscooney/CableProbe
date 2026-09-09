@@ -389,6 +389,37 @@ def test_upgrade_editable_checkout(monkeypatch):
     assert "git pull" in result.output
 
 
+def test_allow_add_list_remove(tmp_path):
+    r = runner.invoke(
+        app,
+        ["allow", "--vid", "0bda", "--pid", "8153", "--serial", "750998",
+         "--name", "Belkin LAN", "--output-dir", str(tmp_path)],
+    )
+    assert r.exit_code == 0 and "added: Belkin LAN" in r.output
+
+    r = runner.invoke(app, ["allow", "--output-dir", str(tmp_path)])
+    assert "Belkin LAN" in r.output and "0bda:8153" in r.output
+
+    r = runner.invoke(app, ["allow", "--remove", "1", "--output-dir", str(tmp_path)])
+    assert r.exit_code == 0 and "removed #1" in r.output
+
+    r = runner.invoke(app, ["allow", "--output-dir", str(tmp_path)])
+    assert "empty" in r.output
+
+
+def test_allow_add_without_serial_warns(tmp_path):
+    r = runner.invoke(
+        app, ["allow", "--vid", "1", "--pid", "2", "--output-dir", str(tmp_path)]
+    )
+    assert r.exit_code == 0
+    assert "no serial given" in r.output
+
+
+def test_allow_remove_out_of_range(tmp_path):
+    r = runner.invoke(app, ["allow", "--remove", "5", "--output-dir", str(tmp_path)])
+    assert r.exit_code == 2
+
+
 def test_check_mentions_sudo_when_not_root(monkeypatch):
     from pathlib import Path
 

@@ -22,6 +22,7 @@ import typer
 
 from cableprobe import __version__
 from cableprobe.config import Config
+from cableprobe.knowledge import Allowlist, ImplantList
 from cableprobe.logging_config import setup_logging
 from cableprobe.probes import PROBE_REGISTRY
 from cableprobe.report import (
@@ -67,6 +68,10 @@ def _load_config(config_path: Optional[Path]) -> Config:
     except Exception as exc:  # noqa: BLE001
         typer.secho(f"error: could not load config: {exc}", fg="red", err=True)
         raise typer.Exit(code=2) from exc
+
+
+def _allowlist_path(cfg: Config) -> Path:
+    return cfg.allowlist_file or (cfg.output_dir / "allowlist.yaml")
 
 
 def _is_root() -> bool:
@@ -318,6 +323,9 @@ def run(
         typer.secho(f"error: could not load rules: {exc}", fg="red", err=True)
         raise typer.Exit(code=2) from exc
 
+    implants = ImplantList.load(cfg.implants_file)
+    allowlist = Allowlist.load(_allowlist_path(cfg))
+
     name = session_name or f"cableprobe-{time.strftime('%Y%m%dT%H%M%S')}"
     prompt_fn = (
         _auto_prompt_factory(cfg.session.auto_advance_grace_seconds)
@@ -334,6 +342,11 @@ def run(
 
     _advise_root("run", interactive=cfg.session.interactive)
 
+    if len(implants):
+        typer.echo(f"known-implant list: {len(implants)} entries")
+    if len(allowlist):
+        typer.echo(f"allowlist: {len(allowlist)} trusted device(s)")
+
     progress = _PhaseProgress(plain=verbose > 0)
     try:
         report = asyncio.run(
@@ -343,6 +356,8 @@ def run(
                 session_name=name,
                 prompt_fn=prompt_fn,
                 on_tick=progress.tick,
+                implants=implants,
+                allowlist=allowlist,
             )
         )
     except KeyboardInterrupt:  # pragma: no cover
@@ -627,6 +642,99 @@ def upgrade(
         typer.secho("upgrade command failed - see its output above.", fg="red", err=True)
         raise typer.Exit(code=result.returncode)
     typer.secho(f"\nupgraded. run `cableprobe --version` to confirm.", fg="green")
+
+
+@app.command()
+def allow(
+    vid: Optional[str] = typer.Option(None, help="Vendor ID (hex) of a device to trust."),
+    pid: Optional[str] = typer.Option(None, help="Product ID (hex) of a device to trust."),
+    serial: Optional[str] = typer.Option(
+        None, help="Serial number - strongly recommended; otherwise ANY device with "
+        "that vendor:product is trusted."
+    ),
+    name: Optional[str] = typer.Option(None, help="A label for the entry."),
+    remove: Optional[int] = typer.Option(
+        None, "--remove", help="Remove the allowlist entry with this number."
+    ),
+    from_report: Optional[Path] = typer.Option(
+        None, "--from-report", help="Interactively add the USB devices seen in a saved report."
+    ),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config file."),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o", help="Where the allowlist lives (default: from config)."
+    ),
+) -> None:
+    """Manage the allowlist of devices you trust.
+
+    Findings about an allowlisted device are downgraded to *info*, so repeat
+    tests of your own hardware stop shouting. With no options this lists the
+    current entries.
+    """
+
+    cfg = _load_config(config)
+    if output_dir is not None:
+        cfg.output_dir = output_dir
+    path = _allowlist_path(cfg)
+    al = Allowlist.load(path)
+    al.path = path
+
+    if remove is not None:
+        if not 1 <= remove <= len(al.entries):
+            typer.secho(
+                f"error: {remove} is out of range (1-{len(al.entries)})", fg="red", err=True
+            )
+            raise typer.Exit(code=2)
+        gone = al.entries.pop(remove - 1)
+        al.save()
+        typer.secho(f"removed #{remove}: {gone.name} ({gone.vid}:{gone.pid})", fg="green")
+        return
+
+    if from_report is not None:
+        if not from_report.is_file():
+            typer.secho(f"error: no such file: {from_report}", fg="red", err=True)
+            raise typer.Exit(code=2)
+        loaded = load_report(from_report)
+        seen: set[tuple] = set()
+        added = 0
+        for delta in loaded.deltas:
+            v = delta.attributes.get("vendor_id")
+            p = delta.attributes.get("product_id")
+            s = delta.attributes.get("serial")
+            if not (v and p) or (v, p, s) in seen:
+                continue
+            seen.add((v, p, s))
+            label = f"{delta.label}  ({v}:{p}" + (f" serial {s}" if s else "") + ")"
+            if typer.confirm(f"allowlist {label}?", default=False):
+                al.add(v, p, s, typer.prompt("  name", default=str(delta.label)))
+                added += 1
+        if added:
+            al.save()
+        typer.secho(f"added {added} device(s) to {path}", fg="green")
+        return
+
+    if vid and pid:
+        entry = al.add(vid, pid, serial, name or f"{vid}:{pid}")
+        al.save()
+        typer.secho(
+            f"added: {entry.name}  {entry.vid}:{entry.pid}"
+            + (f" serial {entry.serial}" if entry.serial else "  (any serial)"),
+            fg="green",
+        )
+        if not serial:
+            typer.secho(
+                "  no serial given - this trusts ANY device presenting that "
+                "vendor:product, including a spoofed one. Add --serial when you can.",
+                fg="yellow",
+            )
+        return
+
+    if not al.entries:
+        typer.echo(f"allowlist is empty ({path})")
+        return
+    typer.secho(f"Allowlist ({path}):\n", fg="cyan", bold=True)
+    for i, e in enumerate(al.entries, start=1):
+        tail = f"serial {e.serial}" if e.serial else "(any serial)"
+        typer.echo(f"  {i:>3}. {e.name:<28}  {e.vid}:{e.pid}  {tail}")
 
 
 @app.command()

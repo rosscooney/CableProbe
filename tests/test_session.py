@@ -82,6 +82,45 @@ async def test_run_session_detects_cable_correlated_device(fast_config, monkeypa
     assert report.summary["highest_severity"] == "high"
 
 
+async def test_run_session_applies_implants_and_allowlist(fast_config, monkeypatch):
+    from cableprobe.knowledge import Allowlist, ImplantList
+    from cableprobe.models import KIND_USB_DEVICE
+
+    implant = Observation(
+        kind=KIND_USB_DEVICE,
+        identity="usb:16d0:0753",
+        label="Digispark",
+        attributes={"vendor_id": "16d0", "product_id": "0753", "serial": "X1"},
+    )
+    fake = FakeProbe(fast_config, 0.0, [[]] * 3 + [[implant]] * 3 + [[]] * 3)
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes", lambda config, session_start: [fake]
+    )
+
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep,
+        implants=ImplantList.load(),
+    )
+    assert any(f.rule_id == "known-implant-device" for f in report.findings)
+
+    # now allowlist that exact device -> the implant finding is downgraded
+    al = Allowlist([], None)
+    al.add("16d0", "0753", "X1", "my dev board")
+    fake2 = FakeProbe(fast_config, 0.0, [[]] * 3 + [[implant]] * 3 + [[]] * 3)
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes", lambda config, session_start: [fake2]
+    )
+    report2 = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep,
+        implants=ImplantList.load(), allowlist=al,
+    )
+    implant_finding = next(
+        f for f in report2.findings if f.rule_id == "known-implant-device"
+    )
+    assert implant_finding.severity == "info"
+    assert "allowlisted: my dev board" in implant_finding.title
+
+
 async def test_run_session_requires_probes(fast_config, monkeypatch):
     monkeypatch.setattr(
         "cableprobe.session.build_probes", lambda config, session_start: []

@@ -12,7 +12,8 @@
 #                          network_config | listening_socket | input_device |
 #                          hid_device | serial_device | audio_device |
 #                          video_device | pci_device | kernel_module |
-#                          wifi_ap | keystroke_timing | process | kernel_message
+#                          wifi_ap | keystroke_timing | power_reading |
+#                          process | kernel_message
 #   first_seen_phase:      baseline | test | post_test
 #   reverted_after_disconnect: true | false
 #   transient:             true | false   (seen only via a udev event)
@@ -565,3 +566,39 @@ rules:
       change: [appeared, modified]
       first_seen_phase: test
       kind: keystroke_timing
+
+  # --- inline power measurement (power probe, off by default) --------------------------
+
+  - id: cable-draws-power-active-electronics
+    title: The cable draws measurably more current than the no-cable baseline
+    severity: high
+    rationale: >
+      A passive USB cable, and a simple passive adapter, draw a negligible and
+      stable current. A sustained jump means there is powered electronics - a
+      microcontroller, a Wi-Fi / BLE radio - in the cable or the connector.
+      Current draw cannot be spoofed by USB descriptor fields. NOTE: if you
+      connected an actual device at the far end (keyboard, disk, adapter) some
+      increase is expected - compare the mA figure to that device's rated
+      draw. For a clean test, connect the cable with NOTHING on its far end.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: power_reading
+      attributes:
+        all:
+          - { key: excess_draw, equals: "True" }
+
+  - id: usb-bus-voltage-out-of-range
+    title: USB VBUS voltage left the normal 5 V range while the cable was connected
+    severity: medium
+    rationale: >
+      VBUS should sit near 5 V. A sag can mean the cable or device is pulling
+      excessive current or the cable has high resistance; a rise can mean the
+      far end is back-feeding power into the host.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: power_reading
+      attributes:
+        all:
+          - { key: voltage_ok, equals: "False" }

@@ -15,6 +15,7 @@ from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe
 from cableprobe.probes.media_devices import AudioDeviceProbe, VideoDeviceProbe
 from cableprobe.probes.network import NetworkInterfaceProbe
 from cableprobe.probes.network_state import ListenerProbe, RoutingProbe
+from cableprobe.probes.power import PowerProbe
 from cableprobe.probes.processes import ProcessProbe
 from cableprobe.probes.serial_devices import SerialDeviceProbe
 from cableprobe.probes.system_state import (
@@ -48,6 +49,7 @@ _PROBE_CLASSES: tuple[type[Probe], ...] = (
     PciDeviceProbe,
     KernelModuleProbe,
     WifiScanProbe,
+    PowerProbe,
     KeystrokeCadenceProbe,
     ProcessProbe,
     KernelLogProbe,

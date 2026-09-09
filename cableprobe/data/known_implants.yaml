@@ -1,0 +1,37 @@
+# Copyright (c) 2026 Stable State Consulting Ltd
+# SPDX-License-Identifier: MIT
+#
+# USB vendor:product IDs that off-the-shelf BadUSB / keystroke-injection /
+# implant tools present in their DEFAULT, un-reconfigured state.
+#
+# Important:
+#   * Almost every tool here CAN be reflashed with a spoofed VID/PID (many
+#     ship a "clone a real keyboard" wizard). A match is a strong lead, not
+#     proof, and a non-match proves nothing.
+#   * Several IDs belong to general-purpose dev boards (Arduino, SparkFun,
+#     Teensy, ESP32, STM32). A hobby project using the same board will match.
+#     Those are rated `medium` with a note; purpose-built tools are `high`.
+#   * Pair every match with the behavioural findings (HID appeared, network
+#     gadget, keystroke cadence, current draw, ...).
+#
+# Add your own with `implants_file:` in the config, or contribute here.
+
+version: 1
+
+implants:
+  - { vid: "16d0", pid: "0753", name: "Digispark / DigiKeyboard (ATtiny85 BadUSB)", severity: high, source: "Digistump/MCS bootloader default" }
+  - { vid: "16c0", pid: "27db", name: "V-USB keyboard (PowerSwitch/obdev shared ID, common in ATtiny BadUSB)", severity: high, source: "obdev.at shared VID/PID" }
+  - { vid: "16c0", pid: "047c", name: "V-USB HID (obdev shared ID)", severity: medium, source: "obdev.at shared VID/PID" }
+  - { vid: "f000", pid: "fff0", name: "Hak5 Bash Bunny (arming-mode serial)", severity: high, source: "Bash Bunny arming mode" }
+  - { vid: "413c", pid: "2107", name: "Hak5 USB Rubber Ducky (spoofed Dell keyboard, classic firmware)", severity: high, source: "twin_duck / Dell HID spoof" }
+  - { vid: "03eb", pid: "2401", name: "Atmel AT90USB / classic Rubber Ducky-class HID", severity: medium, source: "Atmel LUFA keyboard demo" }
+  - { vid: "16c0", pid: "0483", name: "Teensyduino serial (Teensy used for BadUSB)", severity: medium, source: "PJRC Teensy" }
+  - { vid: "16c0", pid: "0487", name: "Teensyduino serial+keyboard+mouse (Teensy BadUSB)", severity: medium, source: "PJRC Teensy" }
+  - { vid: "16c0", pid: "04d0", name: "Teensyduino keyboard-only (Teensy BadUSB)", severity: medium, source: "PJRC Teensy" }
+  - { vid: "2341", pid: "8036", name: "Arduino Leonardo (HID board, common Malduino/BadUSB)", severity: medium, source: "Arduino" }
+  - { vid: "2341", pid: "8037", name: "Arduino Micro (HID board, common BadUSB)", severity: medium, source: "Arduino" }
+  - { vid: "1b4f", pid: "9205", name: "SparkFun Pro Micro 5V (Malduino Bare / WHID)", severity: medium, source: "SparkFun" }
+  - { vid: "1b4f", pid: "9206", name: "SparkFun Pro Micro 3V3 (Malduino Bare / WHID)", severity: medium, source: "SparkFun" }
+  - { vid: "303a", pid: "1001", name: "Espressif ESP32-S2/S3 USB (Evil Crow Cable, WHID, Cactus)", severity: medium, source: "Espressif TinyUSB default" }
+  - { vid: "0483", pid: "5740", name: "STM32 virtual COM (Flipper Zero / STM32 BadUSB)", severity: medium, source: "STMicro CDC" }
+  - { vid: "1d6b", pid: "0104", name: "Linux USB gadget multifunction (P4wnP1 / Pi-as-gadget)", severity: medium, source: "Linux g_multi" }

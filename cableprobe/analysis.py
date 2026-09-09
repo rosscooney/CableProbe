@@ -42,6 +42,10 @@ VOLATILE_KEYS = {
     "strong_signal",
     "channel",
     "freq",
+    "current_ma",
+    "delta_ma",
+    "bus_voltage_v",
+    "baseline_ma",
 }
 
 _ADD_ACTIONS = {"add", "bind", "online"}
