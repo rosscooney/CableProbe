@@ -15,9 +15,16 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-09-09
+
+Noise reduction, mostly around Wi-Fi. Testing an external USB hard disk, and
+even a USB light, on a Raspberry Pi 5 (which has Wi-Fi) was producing 20-plus
+deltas and a fistful of **HIGH** findings — all of it the operator's own
+enterprise Wi-Fi, not the cable.
+
 ### Added
 
-- This changelog.
+- This changelog, covering every earlier tagged release.
 
 ### Changed
 
@@ -220,7 +227,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/rosscooney/CableProbe/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/rosscooney/CableProbe/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/rosscooney/CableProbe/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/rosscooney/CableProbe/compare/v0.3.4...v0.3.5
