@@ -30,12 +30,14 @@ DEFAULT_PROBES: list[str] = [
     "usb",
     "usb_descriptors",
     "usb_topology",
+    "hid_report",
     "usbc_pd",
     "block",
     "mounts",
     "network",
     "routing",
     "listeners",
+    "persistence",
     "input",
     "serial",
     "audio",
@@ -47,9 +49,11 @@ DEFAULT_PROBES: list[str] = [
     "kernel_log",
 ]
 
-#: Probes that exist but are off by default: ``wifi_scan`` (noisy on premises
-#: with Wi-Fi) and ``power`` (needs an INA219 wired up + the ``power`` extra).
-OPTIONAL_PROBES: list[str] = ["wifi_scan", "power"]
+#: Probes that exist but are off by default:
+#:   wifi_scan    - noisy on premises with Wi-Fi
+#:   power        - needs an INA219 wired up + the ``power`` extra
+#:   connections  - noisy unless the test host has NO internet access
+OPTIONAL_PROBES: list[str] = ["wifi_scan", "power", "connections"]
 
 
 class SessionConfig(BaseModel):

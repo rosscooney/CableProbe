@@ -228,12 +228,14 @@ def test_descriptor_observations_flag_interfaces(tmp_path):
     devices = scan_usb_sysfs(str(_fake_usb_tree(tmp_path)))
     obs = descriptor_observations(devices)
     kinds = {o.kind for o in obs}
-    assert kinds == {KIND_USB_INTERFACE}
+    assert kinds == {KIND_USB_INTERFACE, "usb_descriptor"}
     # root hub interfaces are skipped
     assert not any("usb1" in o.identity for o in obs)
     hid = next(o for o in obs if o.identity == "usbif:dead:beef:IMPLANT01:00")
     assert hid.attributes["interface_class_name"] == "hid"
     assert sorted(hid.attributes["device_interface_classes"]) == ["hid", "vendor-specific"]
+    desc = next(o for o in obs if o.identity == "usbdesc:dead:beef:IMPLANT01")
+    assert desc.attributes["num_interfaces"] == "2"
 
 
 def test_topology_observations_count_hubs(tmp_path):

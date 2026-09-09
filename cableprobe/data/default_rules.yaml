@@ -7,13 +7,15 @@
 #
 # Match vocabulary:
 #   change:                appeared | disappeared | modified   (string or list)
-#   kind:                  usb_device | usb_interface | usb_pd | usb_topology |
-#                          block_device | mount | network_interface |
-#                          network_config | listening_socket | input_device |
-#                          hid_device | serial_device | audio_device |
-#                          video_device | pci_device | kernel_module |
-#                          wifi_ap | keystroke_timing | power_reading |
-#                          process | kernel_message
+#   kind:                  usb_device | usb_interface | usb_descriptor |
+#                          usb_pd | usb_topology | hid_report | block_device |
+#                          mount | network_interface | network_config |
+#                          listening_socket | outbound_connection |
+#                          persistence_item | input_device | hid_device |
+#                          serial_device | audio_device | video_device |
+#                          pci_device | kernel_module | wifi_ap |
+#                          keystroke_timing | power_reading | process |
+#                          kernel_message
 #   first_seen_phase:      baseline | test | post_test
 #   reverted_after_disconnect: true | false
 #   transient:             true | false   (seen only via a udev event)
@@ -338,6 +340,100 @@ rules:
         any:
           - { key: device_interface_classes, exists: true }
           - { key: device_num_interfaces, exists: true }
+
+  - id: hid-interface-has-bulk-endpoint
+    title: An HID interface with a bulk endpoint appeared on connect
+    severity: medium
+    rationale: >
+      HID devices (keyboards, mice) use interrupt endpoints. A bulk endpoint on
+      an HID interface is unusual and is a way to move bulk data - a file, a
+      command stream - under cover of the HID class.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_interface
+      attributes:
+        all:
+          - { key: hid_with_bulk_endpoint, equals: "True" }
+
+  - id: usb-device-multiple-configurations
+    title: A USB device with more than one configuration appeared on connect
+    severity: medium
+    rationale: >
+      Almost every real device has exactly one USB configuration. A device with
+      two or more can present a benign configuration to the host and switch to a
+      payload configuration on a trigger.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: usb_descriptor
+      attributes:
+        all:
+          - { key: multi_config, equals: "True" }
+
+  # --- HID report descriptors (hid_report probe) --------------------------
+
+  - id: hid-descriptor-can-inject-keystrokes
+    title: A device can send keystrokes but did not register as a keyboard
+    severity: high
+    rationale: >
+      This device's HID report descriptor contains keyboard usages - it is
+      capable of sending key presses to the host - yet it enumerated as
+      something other than a keyboard. That is exactly how an implant injects
+      input while appearing to be a mouse, a "vendor device", or a dongle.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: hid_report
+      attributes:
+        all:
+          - { key: keyboard_capable_but_not_labelled, equals: "True" }
+
+  - id: hid-descriptor-vendor-channel
+    title: An HID device mixes a standard input capability with a vendor-defined page
+    severity: medium
+    rationale: >
+      A report descriptor that declares both a normal input usage (keyboard /
+      pointer) and a vendor-defined usage page can use the vendor page as a
+      covert two-way channel that no standard driver will surface.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: hid_report
+      attributes:
+        all:
+          - { key: vendor_page_with_input, equals: "True" }
+
+  # --- persistence surface (persistence probe) --------------------------
+
+  - id: persistence-point-changed-on-connect
+    title: A boot / device-event / login file changed while the cable was connected
+    severity: critical
+    rationale: >
+      A file that controls what runs at boot, on a udev event, or at login -
+      a systemd unit, a udev rule, cron, rc.local, ld.so.preload,
+      authorized_keys, /etc/hosts - changed during the session. This is how a
+      payload survives a reboot. Treat the host as compromised until you have
+      reviewed the change.
+    match:
+      change: [appeared, modified]
+      first_seen_phase: test
+      kind: persistence_item
+
+  # --- outbound connections (connections probe, off by default) --------------------------
+
+  - id: new-outbound-connection-on-connect
+    title: A new outbound network connection appeared while the cable was connected
+    severity: medium
+    rationale: >
+      On a properly isolated test host there should be no outbound network
+      activity at all. A connection to a routable host that appears in
+      correlation with the cable is the cable's payload or network gadget
+      phoning home - note the remote address.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: outbound_connection
 
   # --- USB-C / Power Delivery (usbc_pd probe) --------------------------
 

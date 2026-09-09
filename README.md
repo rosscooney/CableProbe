@@ -58,12 +58,14 @@ Type-C port, and simply skips otherwise.
 | `usb`             | USB device inventory (vendor/model, interface classes, HID, hub).                |
 | `usb_descriptors` | Per-interface USB descriptors from sysfs (class/subclass/driver/endpoints).      |
 | `usb_topology`    | USB hub/port tree — hub count, device count, depth, per-hub inventory.           |
+| `hid_report`      | Parses HID report descriptors — catches a device that *can send keystrokes* but didn't register as a keyboard, and vendor-usage covert channels. |
 | `usbc_pd`         | USB-C / Power Delivery port + partner state: data/power roles, alt modes.        |
 | `block`           | Block devices and their transport (`lsblk`).                                     |
 | `mounts`          | Filesystem mounts backed by a device or under removable-media paths.             |
 | `network`         | Network interfaces, drivers, USB-ness, addresses.                                |
 | `routing`         | Default route and DNS resolvers (gateway / resolver hijack).                     |
 | `listeners`       | TCP `LISTEN` sockets on fixed (non-ephemeral) ports; owning process when `ss` is present. |
+| `persistence`     | Fingerprints boot / device-event / login files (udev rules, systemd units, cron, `rc.local`, `ld.so.preload`, `authorized_keys`, `/etc/hosts`). Any change during a session is **critical**. |
 | `input`           | Input / HID devices (keyboards, mice, tablets) — one entry per physical device.  |
 | `serial`          | Serial / modem (TTY) devices, including USB serial (CDC-ACM, FTDI, cp210x).      |
 | `audio`           | Audio (sound-card) devices, including USB audio class.                           |
@@ -75,6 +77,7 @@ Type-C port, and simply skips otherwise.
 | `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). |
 | `wifi_scan` *(off by default)* | Wi-Fi APs in range. Only useful when you specifically suspect the cable carries a radio **and** can baseline somewhere RF-quiet — on normal premises every session lists a dozen neighbouring APs. Enable it in `probes.enabled`. |
 | `power` *(off by default)* | Inline USB VBUS voltage / current from an **INA219** on the Pi's I²C bus — the one measurement a cable can't lie about (powered electronics draw tens of mA). Needs the sensor wired up and `pip install 'cableprobe[power]'`. |
+| `connections` *(off by default)* | Outbound TCP connections to routable hosts — a payload or gadget phoning home. Enable only when the test host has **no** internet access, or every apt/NTP call is noise. |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
 Type-C class, no `/sys/bus/pci`, …) are skipped automatically. `cableprobe
@@ -228,15 +231,21 @@ session:
   post_test_seconds: 30
   sample_interval_seconds: 2.0
 probes:
-  # the default set; list a subset to narrow the session, or add `wifi_scan`
-  enabled: [udev_monitor, usb, usb_descriptors, usb_topology, usbc_pd, block,
-            mounts, network, routing, listeners, input, serial, audio, video,
-            pci, kernel_modules, keystroke_cadence, process, kernel_log]
+  # the default set; list a subset to narrow the session, or add the opt-in
+  # probes: wifi_scan, power, connections
+  enabled: [udev_monitor, usb, usb_descriptors, usb_topology, hid_report, usbc_pd,
+            block, mounts, network, routing, listeners, persistence, input,
+            serial, audio, video, pci, kernel_modules, keystroke_cadence,
+            process, kernel_log]
   kernel_log_backend: auto        # auto | journalctl | dmesg
   kernel_log_keywords: []         # extra case-insensitive substrings to keep
   kernel_log_verbose: false       # true => also keep routine enumeration chatter
   capture_process_cmdline: true   # false => store only the executable name
   capture_keystroke_timing: true  # false => disable the keystroke_cadence probe
+  power_i2c_bus: 1                 # `power` probe: INA219 location + calibration
+  power_i2c_address: 0x40
+  power_shunt_ohms: 0.1
+  power_alert_ma: 8               # mA over baseline that counts as "electronics"
 rules_file: null                  # null => packaged default rules
 output_dir: ./cableprobe-sessions
 ```

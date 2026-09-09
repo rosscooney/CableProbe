@@ -23,6 +23,7 @@ from pathlib import Path
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import (
+    KIND_USB_DESCRIPTOR,
     KIND_USB_INTERFACE,
     KIND_USB_TOPOLOGY,
     Observation,
@@ -142,11 +143,33 @@ def scan_usb_sysfs(root: str = SYS_BUS_USB_DEVICES) -> list[dict]:
                     "subclass": _read(iface / "bInterfaceSubClass"),
                     "protocol": _read(iface / "bInterfaceProtocol"),
                     "num_endpoints": _read(iface / "bNumEndpoints"),
+                    "endpoint_types": _endpoint_types(iface),
                     "driver": driver,
                 }
             )
         devices.append(record)
     return devices
+
+
+_EP_TYPE = {0: "control", 1: "isochronous", 2: "bulk", 3: "interrupt"}
+
+
+def _endpoint_types(iface: Path) -> list[str]:
+    """Transfer types of an interface's endpoints, from its ``ep_XX`` dirs.
+
+    The low two bits of an endpoint's ``bmAttributes`` are the transfer type.
+    """
+
+    types: list[str] = []
+    for ep in sorted(iface.iterdir()):
+        if not (ep.is_dir() and ep.name.startswith("ep_")):
+            continue
+        raw = _read(ep / "bmAttributes")
+        try:
+            types.append(_EP_TYPE.get(int(raw, 16) & 0x03, raw))
+        except (TypeError, ValueError):
+            continue
+    return types
 
 
 def _device_identity(record: dict) -> str:
@@ -178,14 +201,44 @@ def descriptor_observations(devices: list[dict]) -> list[Observation]:
         iface_class_names = sorted(
             {i["class_name"] for i in record["interfaces"] if i.get("class_name")}
         )
+        try:
+            num_configs = int(record.get("num_configurations") or 1)
+        except (TypeError, ValueError):
+            num_configs = 1
+
+        observations.append(
+            Observation(
+                kind=KIND_USB_DESCRIPTOR,
+                identity=f"usbdesc:{dev_ident}",
+                label=f"USB descriptor of {dev_label}",
+                attributes={
+                    "vendor_id": record["vendor_id"],
+                    "product_id": record["product_id"],
+                    "serial": record.get("serial"),
+                    "num_configurations": record.get("num_configurations"),
+                    "multi_config": num_configs > 1,
+                    "has_manufacturer_string": bool(record.get("manufacturer")),
+                    "has_product_string": bool(record.get("product")),
+                    "has_serial_string": bool(record.get("serial")),
+                    "interface_classes": iface_class_names,
+                    "num_interfaces": record.get("num_interfaces"),
+                    "device_class_name": record.get("device_class_name"),
+                    "max_power": record.get("max_power"),
+                },
+            )
+        )
+
         for iface in record["interfaces"]:
             number = iface.get("number") or "?"
+            ep_types = iface.get("endpoint_types") or []
+            cname = iface.get("class_name")
+            hid_with_bulk = cname == "hid" and "bulk" in ep_types
             observations.append(
                 Observation(
                     kind=KIND_USB_INTERFACE,
                     identity=f"usbif:{dev_ident}:{number}",
                     label=(
-                        f"{iface.get('class_name') or 'interface'} interface "
+                        f"{cname or 'interface'} interface "
                         f"#{number} of {dev_label}"
                     ),
                     attributes={
@@ -197,10 +250,12 @@ def descriptor_observations(devices: list[dict]) -> list[Observation]:
                         "device_class_name": record.get("device_class_name"),
                         "interface_number": number,
                         "interface_class": iface.get("class"),
-                        "interface_class_name": iface.get("class_name"),
+                        "interface_class_name": cname,
                         "interface_subclass": iface.get("subclass"),
                         "interface_protocol": iface.get("protocol"),
                         "num_endpoints": iface.get("num_endpoints"),
+                        "endpoint_types": ep_types,
+                        "hid_with_bulk_endpoint": hid_with_bulk,
                         "driver": iface.get("driver"),
                         "device_interface_classes": iface_class_names,
                         "device_num_interfaces": record.get("num_interfaces"),

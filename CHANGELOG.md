@@ -31,6 +31,20 @@ Each release is also published to
   spoof. Needs the sensor wired and `pip install 'cableprobe[power]'`. Rules:
   `cable-draws-power-active-electronics` (HIGH), `usb-bus-voltage-out-of-range`
   (MEDIUM).
+- **`hid_report` probe** — parses HID *report descriptors*. Flags a device that
+  can send keystrokes but didn't register as a keyboard
+  (`hid-descriptor-can-inject-keystrokes`, HIGH) and one mixing a standard input
+  usage with a vendor-defined page (`hid-descriptor-vendor-channel`, MEDIUM).
+- **`persistence` probe** — content-hashes udev rules, systemd units, cron,
+  `rc.local`, `ld.so.preload`, `authorized_keys`, `/etc/hosts`. Any change
+  during a session → `persistence-point-changed-on-connect` (CRITICAL).
+- **`connections` probe** (off by default) — outbound TCP to routable hosts;
+  `new-outbound-connection-on-connect` (MEDIUM). Only useful on a host with no
+  internet access.
+- `usb_descriptors` now also emits a device-level `usb_descriptor` observation
+  (multiple-configuration and missing-string flags) and per-interface endpoint
+  types. Rules: `usb-device-multiple-configurations` (MEDIUM),
+  `hid-interface-has-bulk-endpoint` (MEDIUM).
 
 ## [0.3.10] - 2026-09-09
 

@@ -9,12 +9,15 @@ from cableprobe.config import Config
 from cableprobe.logging_config import get_logger
 from cableprobe.probes.base import Probe
 from cableprobe.probes.block import BlockDeviceProbe
+from cableprobe.probes.connections import ConnectionProbe
+from cableprobe.probes.hid_report import HidReportProbe
 from cableprobe.probes.input_devices import InputDeviceProbe
 from cableprobe.probes.kernel_log import KernelLogProbe
 from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe
 from cableprobe.probes.media_devices import AudioDeviceProbe, VideoDeviceProbe
 from cableprobe.probes.network import NetworkInterfaceProbe
 from cableprobe.probes.network_state import ListenerProbe, RoutingProbe
+from cableprobe.probes.persistence import PersistenceProbe
 from cableprobe.probes.power import PowerProbe
 from cableprobe.probes.processes import ProcessProbe
 from cableprobe.probes.serial_devices import SerialDeviceProbe
@@ -36,12 +39,15 @@ _PROBE_CLASSES: tuple[type[Probe], ...] = (
     UsbProbe,
     UsbDescriptorProbe,
     UsbTopologyProbe,
+    HidReportProbe,
     UsbcPdProbe,
     BlockDeviceProbe,
     MountProbe,
     NetworkInterfaceProbe,
     RoutingProbe,
     ListenerProbe,
+    ConnectionProbe,
+    PersistenceProbe,
     InputDeviceProbe,
     SerialDeviceProbe,
     AudioDeviceProbe,
