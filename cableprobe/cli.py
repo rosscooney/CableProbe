@@ -117,10 +117,11 @@ def _sudo_hints(subcommand: str) -> list[str]:
     if on_root_path or launcher is None:
         return [f"sudo cableprobe {subcommand}{extra}"]
 
+    quoted = shlex.quote(str(launcher))
     return [
-        f"sudo {shlex.quote(str(launcher))} {subcommand}{extra}",
+        f"sudo {quoted} {subcommand}{extra}",
         f'sudo env "PATH=$PATH" cableprobe {subcommand}{extra}',
-        "# permanent: put it on root's PATH once with  sudo ./scripts/install.sh",
+        f"# make it permanent (link into /usr/local/bin):  sudo {quoted} link",
     ]
 
 
@@ -409,6 +410,63 @@ def check(
             typer.secho(f"    {hint}", fg="bright_black")
 
     raise typer.Exit(code=0 if all_ok else 1)
+
+
+@app.command()
+def link(
+    bin_dir: Path = typer.Option(
+        Path("/usr/local/bin"), "--bin-dir",
+        help="Directory on root's PATH to link the launcher into.",
+    ),
+    remove: bool = typer.Option(False, "--remove", help="Remove the link instead of creating it."),
+) -> None:
+    """Symlink this cableprobe launcher into a directory on root's PATH.
+
+    A pipx / ``pip install --user`` install puts ``cableprobe`` in
+    ``~/.local/bin``, which ``sudo`` does not see. Run this once (as root) and
+    ``sudo cableprobe run`` works without a full path:
+
+        sudo "$(command -v cableprobe)" link
+    """
+
+    target = bin_dir / "cableprobe"
+
+    if remove:
+        if target.is_symlink() or target.exists():
+            try:
+                target.unlink()
+            except OSError as exc:
+                typer.secho(f"error: could not remove {target}: {exc}", fg="red", err=True)
+                raise typer.Exit(code=1) from exc
+            typer.secho(f"removed {target}", fg="green")
+        else:
+            typer.echo(f"nothing to remove at {target}")
+        return
+
+    launcher = _launcher_path()
+    if launcher is None:
+        typer.secho(
+            "error: could not locate the cableprobe launcher to link.", fg="red", err=True
+        )
+        raise typer.Exit(code=2)
+
+    if target.is_symlink() and target.resolve() == launcher.resolve():
+        typer.secho(f"{target} already points at {launcher}", fg="green")
+        return
+
+    try:
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink() or target.exists():
+            target.unlink()
+        target.symlink_to(launcher)
+    except OSError as exc:
+        typer.secho(f"error: could not write {target}: {exc}", fg="red", err=True)
+        if not _is_root():
+            typer.secho(f"  try:  sudo {shlex.quote(str(launcher))} link", fg="bright_black")
+        raise typer.Exit(code=1) from exc
+
+    typer.secho(f"linked {target} -> {launcher}", fg="green")
+    typer.echo("`sudo cableprobe run` now works without a full path.")
 
 
 @app.command()

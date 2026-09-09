@@ -104,8 +104,9 @@ picture; the short version:
 # 1. pip / pipx on an existing Raspberry Pi OS / Debian host
 pipx install cableprobe
 sudo apt install usbutils util-linux iw     # CLI tools CableProbe shells out to
-#   note: this puts `cableprobe` in ~/.local/bin, which is NOT on root's PATH,
-#   so `sudo cableprobe` needs a full path (see "command not found" under Usage).
+#   note: this puts `cableprobe` in ~/.local/bin, which is NOT on root's PATH.
+#   run `sudo "$(command -v cableprobe)" link` once so `sudo cableprobe` works
+#   (see "command not found" under Usage).
 
 # 2. one command on a Pi (isolated venv under /opt/cableprobe) — RECOMMENDED for
 #    a test rig: links /usr/local/bin/cableprobe so `sudo cableprobe` just works,
@@ -192,12 +193,18 @@ interactive mode, prints the `sudo` command and asks whether to continue anyway;
 `--auto` just warns and proceeds. `cableprobe check` flags it too.
 
 **`sudo: cableprobe: command not found`?** A `pipx` / `pip install --user`
-install puts `cableprobe` in `~/.local/bin`, which is not on root's `PATH`. Run
-it by absolute path (`sudo "$(which cableprobe)" check`), preserve your `PATH`
-(`sudo env "PATH=$PATH" cableprobe check`), or install it on root's `PATH` once
-with `sudo ./scripts/install.sh` (below) — that is the recommended setup for a
-test rig. The not-root warning now prints whichever of these applies to your
-install.
+install puts `cableprobe` in `~/.local/bin`, which is not on root's `PATH`. Fix
+it permanently — symlink the launcher into `/usr/local/bin` once:
+
+```bash
+sudo "$(command -v cableprobe)" link      # sudo cableprobe link --remove to undo
+```
+
+after which `sudo cableprobe run` just works. Or, per-invocation: run it by
+absolute path (`sudo "$(command -v cableprobe)" check`) or preserve your `PATH`
+(`sudo env "PATH=$PATH" cableprobe check`). The not-root warning prints whichever
+of these applies to your install. (`scripts/install.sh`, below, sets the link up
+as part of a from-scratch `/opt` install.)
 
 ### Exit codes
 

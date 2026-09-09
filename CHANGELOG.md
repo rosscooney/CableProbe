@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- `cableprobe link` — symlinks the launcher into `/usr/local/bin` (`--bin-dir`
+  to choose, `--remove` to undo) so `sudo cableprobe run` works without a full
+  path after a `pipx` / `pip install --user` install. The not-root warning now
+  points at it.
+
 ### Changed
 
 - CI: the publish workflow's `actions/*` steps bumped to the Node 24 majors

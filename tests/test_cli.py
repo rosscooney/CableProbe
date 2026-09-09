@@ -137,6 +137,51 @@ def test_report_command_picker_empty_dir(tmp_path):
     assert "no saved reports" in result.output
 
 
+def test_link_creates_and_removes_symlink(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    launcher = tmp_path / "src" / "cableprobe"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    bindir = tmp_path / "bin"
+    monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: launcher)
+
+    result = runner.invoke(app, ["link", "--bin-dir", str(bindir)])
+    assert result.exit_code == 0, result.output
+    link = bindir / "cableprobe"
+    assert link.is_symlink() and link.resolve() == launcher.resolve()
+    assert "works without a full path" in result.output
+
+    # idempotent
+    again = runner.invoke(app, ["link", "--bin-dir", str(bindir)])
+    assert again.exit_code == 0
+    assert "already points at" in again.output
+
+    removed = runner.invoke(app, ["link", "--bin-dir", str(bindir), "--remove"])
+    assert removed.exit_code == 0
+    assert not link.exists()
+
+    noop = runner.invoke(app, ["link", "--bin-dir", str(bindir), "--remove"])
+    assert noop.exit_code == 0
+    assert "nothing to remove" in noop.output
+
+
+def test_link_reports_permission_error(tmp_path, monkeypatch):
+    launcher = tmp_path / "cableprobe"
+    launcher.write_text("x", encoding="utf-8")
+    monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: launcher)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+
+    def boom(*a, **k):
+        raise PermissionError("nope")
+
+    monkeypatch.setattr("pathlib.Path.symlink_to", boom)
+    result = runner.invoke(app, ["link", "--bin-dir", str(tmp_path / "bin")])
+    assert result.exit_code == 1
+    assert "could not write" in result.output
+    assert "sudo" in result.output and "link" in result.output
+
+
 def test_run_rejects_bad_config(tmp_path):
     bad = tmp_path / "c.yaml"
     bad.write_text("session: {test_seconds: -5}\n", encoding="utf-8")
@@ -179,7 +224,7 @@ def test_sudo_hints_for_user_local_install(monkeypatch):
     hints = _sudo_hints("check")
     assert hints[0] == "sudo /home/pi/.local/bin/cableprobe check"
     assert any('env "PATH=$PATH"' in h for h in hints)
-    assert any("scripts/install.sh" in h for h in hints)
+    assert any(h.endswith("cableprobe link") for h in hints)
 
     monkeypatch.setattr(
         "cableprobe.cli._launcher_path", lambda: Path("/usr/local/bin/cableprobe")
