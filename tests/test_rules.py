@@ -140,18 +140,38 @@ def test_findings_sorted_by_severity():
     assert severities == sorted(severities, key=lambda s: rank[s], reverse=True)
 
 
-def test_kernel_ethernet_gadget_is_critical():
+def test_rndis_kernel_line_is_high_plain_cdc_is_not():
     rs = RuleSet.default()
-    delta = _delta(
+    rndis = _delta(
         KIND_KERNEL_MESSAGE,
-        "kmsg:cdc_ether # x eth#: register",
-        label="cdc_ether 1-1:2.0 usb0: register 'cdc_ether'",
+        "kmsg:rndis register",
+        label="rndis_host 1-1:2.0 usb0: register 'rndis_host'",
     )
-    findings = rs.evaluate([delta])
-    assert any(
-        f.rule_id == "usb-ethernet-gadget-kernel-signature" and f.severity == "critical"
-        for f in findings
+    hit = next(
+        f for f in rs.evaluate([rndis]) if f.rule_id == "rndis-gadget-kernel-signature"
     )
+    assert hit.severity == "high"
+
+    # a normal CDC ethernet line no longer spawns its own finding
+    cdc = _delta(
+        KIND_KERNEL_MESSAGE, "kmsg:cdc_ether register", label="cdc_ether usb0: register"
+    )
+    assert not any(
+        f.rule_id.endswith("gadget-kernel-signature") for f in rs.evaluate([cdc])
+    )
+
+
+def test_findings_consolidate_by_rule():
+    rs = RuleSet.default()
+    lines = [
+        _delta(KIND_KERNEL_MESSAGE, f"kmsg:rndis line {i}", label=f"rndis line {i}")
+        for i in range(5)
+    ]
+    findings = rs.evaluate(lines)
+    rndis = [f for f in findings if f.rule_id == "rndis-gadget-kernel-signature"]
+    assert len(rndis) == 1
+    assert rndis[0].evidence[0] == "matched 5 times:"
+    assert len(rndis[0].related_identities) == 5
 
 
 def test_block_device_usb_transport():

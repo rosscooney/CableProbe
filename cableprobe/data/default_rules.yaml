@@ -105,17 +105,20 @@ rules:
       first_seen_phase: test
       kind: network_interface
 
-  - id: usb-ethernet-gadget-kernel-signature
-    title: Kernel logged a USB ethernet/CDC gadget during the test phase
-    severity: critical
+  - id: rndis-gadget-kernel-signature
+    title: Kernel logged an RNDIS network gadget during the test phase
+    severity: high
     rationale: >
-      Kernel messages referencing cdc_ether / rndis / cdc_ncm / usbnet during
-      the test phase indicate the cable enumerated a network gadget.
+      RNDIS is Microsoft's USB-networking protocol. Legitimate USB ethernet
+      dongles use CDC / NCM; RNDIS on connect is strongly associated with
+      implant cables that want a network path into a Windows host. (A plain
+      ethernet adapter is already caught by network-interface-appeared and
+      gadget-driver-module-loaded, so this rule is RNDIS-only.)
     match:
       change: appeared
       first_seen_phase: test
       kind: kernel_message
-      label_regex: "cdc_ether|cdc_ncm|rndis|usbnet|r8152|ax88"
+      label_regex: "rndis"
 
   - id: mass-storage-appeared-on-connect
     title: Storage device appeared while the unknown cable was connected
@@ -426,7 +429,7 @@ rules:
       change: appeared
       first_seen_phase: test
       kind: kernel_module
-      label_regex: "rndis|cdc_ncm|cdc_ether|cdc_mbim|usbnet|r8152|ax88|huawei_cdc_ncm|cdc_acm|usbserial|ftdi_sio|cp210x|ch341|pl2303|\\boption\\b|qcserial|btusb|btintel|btbcm"
+      label_regex: "rndis|cdc_ncm|cdc_ether|cdc_mbim|cdc_eem|usbnet|r815[0-9]|ax88|asix|huawei_cdc_ncm|cdc_acm|usbserial|ftdi_sio|cp210x|ch341|pl2303|\\boption\\b|qcserial|btusb|btintel|btbcm"
 
   - id: removable-media-mounted-on-connect
     title: A filesystem was mounted while the unknown cable was connected

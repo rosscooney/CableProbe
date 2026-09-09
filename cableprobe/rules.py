@@ -189,13 +189,66 @@ class RuleSet(BaseModel):
         return cls.load(path)
 
     def evaluate(self, deltas: list[Delta]) -> list[Finding]:
-        findings: list[Finding] = []
+        raw: list[Finding] = []
         for delta in deltas:
             for rule in self.rules:
                 finding = rule.check(delta)
                 if finding is not None:
-                    findings.append(finding)
+                    raw.append(finding)
+        findings = _consolidate(raw)
         findings.sort(
             key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True
         )
         return findings
+
+
+#: Cap on per-rule evidence lines kept in a consolidated finding.
+_CONSOLIDATE_EVIDENCE_CAP = 8
+
+
+def _consolidate(findings: list[Finding]) -> list[Finding]:
+    """Collapse multiple hits of the same rule into one finding.
+
+    One event (an ethernet gadget enumerating, say) can match a kernel-log rule
+    on half a dozen separate log lines. That is one fact, not six findings - so
+    hits that share a ``rule_id`` become a single finding whose evidence lists
+    each match.
+    """
+
+    groups: dict[str, list[Finding]] = {}
+    order: list[str] = []
+    for finding in findings:
+        if finding.rule_id not in groups:
+            groups[finding.rule_id] = []
+            order.append(finding.rule_id)
+        groups[finding.rule_id].append(finding)
+
+    out: list[Finding] = []
+    for rule_id in order:
+        group = groups[rule_id]
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+        first = group[0]
+        evidence = [f"matched {len(group)} times:"]
+        for finding in group[:_CONSOLIDATE_EVIDENCE_CAP]:
+            head = finding.evidence[0] if finding.evidence else rule_id
+            evidence.append(f"  - {head}")
+        if len(group) > _CONSOLIDATE_EVIDENCE_CAP:
+            evidence.append(
+                f"  … and {len(group) - _CONSOLIDATE_EVIDENCE_CAP} more "
+                "(see the JSON report)"
+            )
+        out.append(
+            Finding(
+                rule_id=first.rule_id,
+                title=first.title,
+                severity=first.severity,
+                rationale=first.rationale,
+                evidence=evidence,
+                related_identities=sorted(
+                    {i for f in group for i in f.related_identities}
+                ),
+            )
+        )
+    return out

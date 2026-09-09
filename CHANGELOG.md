@@ -24,6 +24,16 @@ Each release is also published to
 
 ### Changed
 
+- Findings that hit the same rule are consolidated into one. A single event (an
+  ethernet gadget enumerating, say) matched a kernel-log rule on half a dozen
+  separate log lines and became six CRITICAL findings; it is now one finding
+  that lists each match. A USB ethernet adapter scan goes from 11 findings to 5.
+- Removed the broad `usb-ethernet-gadget-kernel-signature` (CRITICAL) rule -
+  `network-interface-appeared-on-connect` and `gadget-driver-module-loaded`
+  already cover a network gadget, at HIGH. A new `rndis-gadget-kernel-signature`
+  (HIGH) keeps a rule for RNDIS specifically, which legitimate USB ethernet
+  dongles do not use. CRITICAL is now reserved for a gadget that actually took
+  over routing / DNS or tunnelled PCIe.
 - `udev_monitor` only reports events for subsystems that map to a real device
   kind. Plugging in one USB disk fires a swarm of kernel-internal `add` events
   (`scsi_device`, `scsi_disk`, `scsi_generic`, `bsg`, `bdi`, …) that were being
