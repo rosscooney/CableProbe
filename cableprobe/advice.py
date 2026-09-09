@@ -45,12 +45,21 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
         "input device through this cable, treat it as an attack tool.",
     ),
     (
+        "network-hijack",
+        ("default-route-changed", "dns-resolvers-changed"),
+        "The cable brought up a network adapter AND changed where this "
+        "computer's traffic or name-lookups go. Something inside the cable is "
+        "now positioned to read, redirect or fake the sites and services you "
+        "connect to. This is an active attack, not just a capability.",
+    ),
+    (
         "network",
-        ("network-interface", "default-route-changed", "dns-resolvers-changed", "ethernet-gadget"),
+        ("network-interface", "rndis-gadget"),
         "The cable made the computer think a network adapter was plugged in. A "
         "cable that does this can sit between you and the internet and read, "
-        "redirect or fake the sites and services you connect to"
-        " — and here it changed where traffic actually goes.",
+        "redirect or fake the sites and services you connect to. It did not "
+        "take over routing here, but a plain charge/data cable has no reason to "
+        "add a network adapter at all.",
     ),
     (
         "storage",
@@ -126,13 +135,23 @@ class Advice:
     body: list[str] = field(default_factory=list)
 
 
+#: When the key on the left is present, the keys on the right are redundant.
+_THEME_SUPERSEDES = {"network-hijack": {"network"}}
+
+
 def _themes_present(report: SessionReport) -> list[str]:
     rule_ids = {f.rule_id for f in report.findings}
-    out: list[str] = []
-    for key, needles, sentence in _THEMES:
-        if any(n in rid for rid in rule_ids for n in needles):
-            out.append(sentence)
-    return out
+    matched = {
+        key
+        for key, needles, _ in _THEMES
+        if any(n in rid for rid in rule_ids for n in needles)
+    }
+    superseded = {s for key in matched for s in _THEME_SUPERSEDES.get(key, ())}
+    return [
+        sentence
+        for key, _, sentence in _THEMES
+        if key in matched and key not in superseded
+    ]
 
 
 def build_advice(report: SessionReport) -> Advice:

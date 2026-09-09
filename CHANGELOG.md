@@ -21,6 +21,10 @@ Each release is also published to
   under `sudo` (prompting for a password) when `/usr/local/bin` needs root.
   `--no-sudo` opts out. The not-root warning shows `cableprobe link` as a
   clearly separate line rather than a trailing comment.
+- The "What this means" network line no longer says "it changed where traffic
+  actually goes" when only a network *interface* appeared — that stronger
+  wording is now a separate line that fires only when the default route or DNS
+  resolvers actually changed.
 
 ## [0.3.9] - 2026-09-09
 

@@ -45,6 +45,35 @@ def test_keyboard_advice_is_high_and_explains_badusb():
     assert "do not trust or reuse this cable" in body
 
 
+def test_network_adapter_advice_does_not_overclaim_routing():
+    a = build_advice(
+        _report(
+            [_f("network-interface-appeared-on-connect", "high")],
+            {"highest_severity": "high"},
+        )
+    )
+    body = " ".join(a.body).lower()
+    assert "network adapter" in body
+    assert "did not take over routing" in body
+    assert "active attack" not in body
+
+
+def test_route_hijack_advice_supersedes_plain_network_theme():
+    a = build_advice(
+        _report(
+            [
+                _f("network-interface-appeared-on-connect", "high"),
+                _f("default-route-changed-on-connect", "critical"),
+            ],
+            {"highest_severity": "critical"},
+        )
+    )
+    joined = "\n".join(a.body)
+    assert joined.count("network adapter") == 1  # only the hijack sentence
+    assert "active attack" in joined
+    assert "did not take over routing" not in joined
+
+
 def test_critical_pci_advice_says_disconnect():
     a = build_advice(
         _report(
