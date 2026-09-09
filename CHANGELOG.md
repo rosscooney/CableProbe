@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- `sudo cableprobe upgrade` failed for a `pipx` install ("Package is not
+  installed. Expected to find /root/.local/…") — pipx as root can't see a venv
+  in the user's home. It now drops back to the invoking user (`sudo -u
+  $SUDO_USER`). Running `cableprobe upgrade` without `sudo` works too.
+
 ## [0.4.1] - 2026-09-09
 
 A big detection batch: a known-implant blocklist, a trusted-device allowlist,

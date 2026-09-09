@@ -570,6 +570,17 @@ def _is_editable_install() -> bool:
     return False
 
 
+def _path_owner(path: str) -> str | None:
+    """Login name that owns ``path`` (pipx venvs are owned by their installer)."""
+
+    try:
+        import pwd
+
+        return pwd.getpwuid(Path(path).stat().st_uid).pw_name
+    except Exception:  # noqa: BLE001 - non-POSIX, missing pwd, stat failure
+        return None
+
+
 def _upgrade_command() -> list[str] | None:
     """The command that upgrades *this* install, or None if it can't be guessed."""
 
@@ -577,12 +588,20 @@ def _upgrade_command() -> list[str] | None:
         return None  # source checkout - `git pull`
     prefix = str(Path(sys.prefix).resolve())
     launcher = str(_launcher_path() or "")
-    if (
+    is_pipx = (
         "/pipx/" in prefix
         or "/pipx/" in launcher
         or os.path.basename(os.path.dirname(prefix)) == "venvs"
-    ):
-        return ["pipx", "upgrade", "cableprobe", "--pip-args=--no-cache-dir"]
+    )
+    if is_pipx:
+        cmd = ["pipx", "upgrade", "cableprobe", "--pip-args=--no-cache-dir"]
+        # `sudo cableprobe upgrade` runs as root, but a pipx install lives in
+        # the *user's* home - pipx as root can't see it. Drop back to the
+        # invoking user.
+        owner = os.environ.get("SUDO_USER") or _path_owner(prefix)
+        if _is_root() and owner and owner != "root":
+            return ["sudo", "-u", owner, "-H", *cmd]
+        return cmd
     if prefix.startswith("/opt/cableprobe"):
         return None  # managed by scripts/install.sh
     return [
@@ -622,6 +641,11 @@ def upgrade(
 
     typer.secho(f"\ncableprobe {latest} is available.", fg="yellow", bold=True)
     cmd = _upgrade_command()
+    if cmd and cmd[0] == "sudo":
+        typer.secho(
+            f"(this is a pipx install owned by {cmd[2]}; upgrading as that user)",
+            fg="bright_black",
+        )
     if check or cmd is None:
         if cmd is None:
             typer.echo(

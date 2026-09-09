@@ -381,6 +381,33 @@ def test_upgrade_pypi_unreachable(monkeypatch):
     assert "could not reach PyPI" in result.output
 
 
+def test_upgrade_command_drops_to_sudo_user_for_pipx(monkeypatch):
+    import sys
+    from pathlib import Path
+
+    from cableprobe.cli import _upgrade_command
+
+    monkeypatch.setattr("cableprobe.cli.__version__", "0.4.1")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    monkeypatch.setattr(
+        sys, "prefix", "/home/pi/.local/share/pipx/venvs/cableprobe", raising=False
+    )
+    monkeypatch.setattr(
+        "cableprobe.cli._launcher_path", lambda: Path("/home/pi/.local/bin/cableprobe")
+    )
+
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+    monkeypatch.setenv("SUDO_USER", "pi")
+    cmd = _upgrade_command()
+    assert cmd[:4] == ["sudo", "-u", "pi", "-H"]
+    assert "pipx" in cmd
+
+    # not root -> plain pipx, no sudo prefix
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    monkeypatch.delenv("SUDO_USER", raising=False)
+    assert _upgrade_command()[0] == "pipx"
+
+
 def test_upgrade_editable_checkout(monkeypatch):
     monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "9.9.9")
     monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: True)
