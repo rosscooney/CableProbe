@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- `cableprobe link` now escalates itself: run it without `sudo` and it re-execs
+  under `sudo` (prompting for a password) when `/usr/local/bin` needs root.
+  `--no-sudo` opts out. The not-root warning shows `cableprobe link` as a
+  clearly separate line rather than a trailing comment.
+
 ## [0.3.9] - 2026-09-09
 
 More noise reduction from real-device testing on a Raspberry Pi 5 — an external

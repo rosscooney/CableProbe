@@ -105,7 +105,7 @@ picture; the short version:
 pipx install cableprobe
 sudo apt install usbutils util-linux iw     # CLI tools CableProbe shells out to
 #   note: this puts `cableprobe` in ~/.local/bin, which is NOT on root's PATH.
-#   run `sudo "$(command -v cableprobe)" link` once so `sudo cableprobe` works
+#   run `cableprobe link` once (it escalates itself) so `sudo cableprobe` works
 #   (see "command not found" under Usage).
 
 # 2. one command on a Pi (isolated venv under /opt/cableprobe) — RECOMMENDED for
@@ -194,10 +194,11 @@ interactive mode, prints the `sudo` command and asks whether to continue anyway;
 
 **`sudo: cableprobe: command not found`?** A `pipx` / `pip install --user`
 install puts `cableprobe` in `~/.local/bin`, which is not on root's `PATH`. Fix
-it permanently — symlink the launcher into `/usr/local/bin` once:
+it permanently — run this once (no `sudo` in front; it escalates itself and
+asks for your password):
 
 ```bash
-sudo "$(command -v cableprobe)" link      # sudo cableprobe link --remove to undo
+cableprobe link          # cableprobe link --remove to undo
 ```
 
 after which `sudo cableprobe run` just works. Or, per-invocation: run it by

@@ -166,7 +166,7 @@ def test_link_creates_and_removes_symlink(tmp_path, monkeypatch):
     assert "nothing to remove" in noop.output
 
 
-def test_link_reports_permission_error(tmp_path, monkeypatch):
+def test_link_reports_permission_error_with_no_sudo(tmp_path, monkeypatch):
     launcher = tmp_path / "cableprobe"
     launcher.write_text("x", encoding="utf-8")
     monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: launcher)
@@ -176,10 +176,36 @@ def test_link_reports_permission_error(tmp_path, monkeypatch):
         raise PermissionError("nope")
 
     monkeypatch.setattr("pathlib.Path.symlink_to", boom)
-    result = runner.invoke(app, ["link", "--bin-dir", str(tmp_path / "bin")])
+    result = runner.invoke(
+        app, ["link", "--no-sudo", "--bin-dir", str(tmp_path / "bin")]
+    )
     assert result.exit_code == 1
     assert "could not write" in result.output
     assert "sudo" in result.output and "link" in result.output
+
+
+def test_link_reexecs_with_sudo_when_target_not_writable(monkeypatch):
+    calls = []
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    monkeypatch.setattr("cableprobe.cli._reexec_with_sudo", lambda: calls.append(True))
+    # /root is not writable for a normal user -> should try to escalate
+    result = runner.invoke(app, ["link", "--bin-dir", "/root/nowhere"])
+    assert calls == [True]  # re-exec was attempted
+    # _reexec_with_sudo is mocked to a no-op, so it falls through and then fails
+    assert result.exit_code in (1, 2)
+
+
+def test_link_does_not_escalate_when_target_writable(tmp_path, monkeypatch):
+    launcher = tmp_path / "cableprobe"
+    launcher.write_text("x", encoding="utf-8")
+    monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: launcher)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    monkeypatch.setattr(
+        "cableprobe.cli._reexec_with_sudo",
+        lambda: (_ for _ in ()).throw(AssertionError("should not escalate")),
+    )
+    result = runner.invoke(app, ["link", "--bin-dir", str(tmp_path / "bin")])
+    assert result.exit_code == 0, result.output
 
 
 def test_run_rejects_bad_config(tmp_path):
@@ -213,10 +239,10 @@ def test_run_warns_when_not_root_but_continues_in_auto(tmp_path, monkeypatch):
     assert "sudo cableprobe run" in result.output
 
 
-def test_sudo_hints_for_user_local_install(monkeypatch):
+def test_sudo_hints_and_permanent_link_for_user_local_install(monkeypatch):
     from pathlib import Path
 
-    from cableprobe.cli import _sudo_hints
+    from cableprobe.cli import _permanent_link_hint, _sudo_hints
 
     monkeypatch.setattr(
         "cableprobe.cli._launcher_path", lambda: Path("/home/pi/.local/bin/cableprobe")
@@ -224,12 +250,13 @@ def test_sudo_hints_for_user_local_install(monkeypatch):
     hints = _sudo_hints("check")
     assert hints[0] == "sudo /home/pi/.local/bin/cableprobe check"
     assert any('env "PATH=$PATH"' in h for h in hints)
-    assert any(h.endswith("cableprobe link") for h in hints)
+    assert _permanent_link_hint().startswith("cableprobe link")
 
     monkeypatch.setattr(
         "cableprobe.cli._launcher_path", lambda: Path("/usr/local/bin/cableprobe")
     )
     assert _sudo_hints("check") == ["sudo cableprobe check"]
+    assert _permanent_link_hint() is None  # already on root's PATH
 
     monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: None)
     assert _sudo_hints("run") == ["sudo cableprobe run …"]

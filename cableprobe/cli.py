@@ -121,8 +121,17 @@ def _sudo_hints(subcommand: str) -> list[str]:
     return [
         f"sudo {quoted} {subcommand}{extra}",
         f'sudo env "PATH=$PATH" cableprobe {subcommand}{extra}',
-        f"# make it permanent (link into /usr/local/bin):  sudo {quoted} link",
     ]
+
+
+def _permanent_link_hint() -> str | None:
+    """One-liner that makes ``sudo cableprobe`` work for good, or None if the
+    launcher is already on root's PATH."""
+
+    launcher = _launcher_path()
+    if launcher is None or str(launcher.parent) in _ROOT_SECURE_PATH:
+        return None
+    return "cableprobe link          # prompts for your sudo password"
 
 
 def _advise_root(subcommand: str, *, interactive: bool) -> None:
@@ -137,17 +146,23 @@ def _advise_root(subcommand: str, *, interactive: bool) -> None:
         return
 
     hint = "\n    ".join(_sudo_hints(subcommand))
-    typer.secho("\n" + "=" * 70, fg="bright_black")
-    typer.secho(
+    body = (
         "CableProbe is NOT running as root.\n"
         "Without privileges the kernel-log, udev-attribute, USB-descriptor,\n"
         "keystroke-timing and raw-socket probes see much less detail, and some\n"
         "are skipped entirely. Running under sudo is strongly recommended.\n\n"
         "You can exit now and re-run as:\n\n"
-        f"    {hint}",
-        fg="yellow",
-        bold=True,
+        f"    {hint}"
     )
+    permanent = _permanent_link_hint()
+    if permanent is not None:
+        body += (
+            "\n\n"
+            "Or, so that a bare `sudo cableprobe` works from now on, run once:\n\n"
+            f"    {permanent}"
+        )
+    typer.secho("\n" + "=" * 70, fg="bright_black")
+    typer.secho(body, fg="yellow", bold=True)
     typer.secho("=" * 70, fg="bright_black")
 
     if not interactive:
@@ -412,6 +427,28 @@ def check(
     raise typer.Exit(code=0 if all_ok else 1)
 
 
+def _reexec_with_sudo() -> None:
+    """Re-run this exact command under ``sudo`` (which prompts for a password).
+
+    Returns only if that is not possible (no sudo, no TTY, or already elevated);
+    otherwise it replaces the current process and never returns.
+    """
+
+    if _is_root() or os.environ.get("CABLEPROBE_NO_SUDO_REEXEC"):
+        return
+    if shutil.which("sudo") is None or not sys.stdin.isatty():
+        return
+    launcher = _launcher_path()
+    if launcher is None:
+        return
+    argv = ["sudo", str(launcher), *sys.argv[1:]]
+    typer.secho(f"re-running with sudo: {shlex.join(argv)}", fg="bright_black")
+    try:
+        os.execvp("sudo", argv)  # noqa: S606 - deliberate privilege escalation
+    except OSError:
+        return
+
+
 @app.command()
 def link(
     bin_dir: Path = typer.Option(
@@ -419,17 +456,24 @@ def link(
         help="Directory on root's PATH to link the launcher into.",
     ),
     remove: bool = typer.Option(False, "--remove", help="Remove the link instead of creating it."),
+    sudo: bool = typer.Option(
+        True, "--sudo/--no-sudo",
+        help="Re-run under sudo (prompting for a password) if writing needs root.",
+    ),
 ) -> None:
-    """Symlink this cableprobe launcher into a directory on root's PATH.
+    """Make `sudo cableprobe` work by symlinking the launcher into root's PATH.
 
     A pipx / ``pip install --user`` install puts ``cableprobe`` in
-    ``~/.local/bin``, which ``sudo`` does not see. Run this once (as root) and
-    ``sudo cableprobe run`` works without a full path:
-
-        sudo "$(command -v cableprobe)" link
+    ``~/.local/bin``, which ``sudo`` does not see. Run ``cableprobe link`` once
+    (no ``sudo`` needed - it re-runs itself under ``sudo`` and prompts for your
+    password) and afterwards ``sudo cableprobe run`` works without a full path.
+    ``--no-sudo`` skips the escalation; ``--remove`` deletes the link.
     """
 
     target = bin_dir / "cableprobe"
+    need_root = not os.access(bin_dir if bin_dir.is_dir() else bin_dir.parent, os.W_OK)
+    if need_root and not _is_root() and sudo:
+        _reexec_with_sudo()  # replaces the process on success
 
     if remove:
         if target.is_symlink() or target.exists():
@@ -462,7 +506,10 @@ def link(
     except OSError as exc:
         typer.secho(f"error: could not write {target}: {exc}", fg="red", err=True)
         if not _is_root():
-            typer.secho(f"  try:  sudo {shlex.quote(str(launcher))} link", fg="bright_black")
+            typer.secho(
+                f"  run it as root:  sudo {shlex.quote(str(launcher))} link",
+                fg="bright_black",
+            )
         raise typer.Exit(code=1) from exc
 
     typer.secho(f"linked {target} -> {launcher}", fg="green")
