@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-09
+
+A big detection batch: a known-implant blocklist, a trusted-device allowlist,
+and five new probes (inline power measurement, HID report-descriptor parsing,
+persistence-surface hashing, outbound connections, deeper USB descriptors).
+24 probes, 44 rules.
+
 ### Added
 
 - **Known-implant list** — a packaged table of USB vendor:product IDs that
@@ -323,7 +330,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.3.10...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/rosscooney/CableProbe/compare/v0.3.10...v0.4.1
 [0.3.10]: https://github.com/rosscooney/CableProbe/compare/v0.3.9...v0.3.10
 [0.3.9]: https://github.com/rosscooney/CableProbe/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/rosscooney/CableProbe/compare/v0.3.7...v0.3.8

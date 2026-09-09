@@ -153,7 +153,7 @@ Doing it by hand instead:
 ```bash
 # pipx, to the latest release — add --no-cache-dir if it claims you're up to date
 pipx upgrade cableprobe --pip-args=--no-cache-dir
-pipx install --force cableprobe==0.3.10        # pin / roll back to a version
+pipx install --force cableprobe==0.4.1        # pin / roll back to a version
 
 # pipx, to the latest development code (main), ahead of the last release
 pipx install --force "cableprobe @ git+https://github.com/rosscooney/CableProbe@main"

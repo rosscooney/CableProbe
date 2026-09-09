@@ -6,8 +6,8 @@
 # virtualenv; does not touch system Python packages.
 
 # Where to install CableProbe from. Override in your pi-gen `config`:
-#   export CABLEPROBE_SRC="cableprobe==0.3.10"
-#   export CABLEPROBE_SRC="cableprobe @ git+https://github.com/rosscooney/CableProbe@v0.3.10"
+#   export CABLEPROBE_SRC="cableprobe==0.4.1"
+#   export CABLEPROBE_SRC="cableprobe @ git+https://github.com/rosscooney/CableProbe@v0.4.1"
 CABLEPROBE_SRC="${CABLEPROBE_SRC:-cableprobe}"
 
 python3 -m venv /opt/cableprobe/venv
