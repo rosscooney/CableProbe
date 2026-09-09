@@ -15,6 +15,12 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- CI: the publish workflow's `actions/*` steps bumped to the Node 24 majors
+  (checkout v7, setup-python v7, upload-artifact v7, download-artifact v8),
+  clearing the "Node.js 20 is deprecated" warning. No effect on the package.
+
 ## [0.3.8] - 2026-09-09
 
 Noise reduction, mostly around Wi-Fi. Testing an external USB hard disk, and
