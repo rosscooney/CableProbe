@@ -133,7 +133,7 @@ work, but the live probes are unavailable.
 # 1a. pipx — to the latest *published* release on PyPI
 pipx upgrade cableprobe
 pipx upgrade-all                          # everything pipx manages
-pipx install --force cableprobe==0.3.8    # pin / roll back to a specific release
+pipx install --force cableprobe==0.3.9    # pin / roll back to a specific release
 
 # 1b. pipx — to the latest development code (main), ahead of the last release
 pipx install --force "git+https://github.com/rosscooney/CableProbe"
@@ -155,7 +155,7 @@ cableprobe check
 ```
 
 `pipx upgrade cableprobe` only moves you to a **higher version number on PyPI**.
-`cableprobe is already at latest version 0.3.8` means there is no newer release
+`cableprobe is already at latest version 0.3.9` means there is no newer release
 — publish one first (bump `version` in `pyproject.toml`, tag, push to PyPI), or
 use the `git+https://…` form above to track `main`. If a new version drops a
 probe or changes report fields it is called out in the GitHub release notes;

@@ -15,6 +15,12 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-09-09
+
+More noise reduction from real-device testing on a Raspberry Pi 5 — an external
+USB disk, a USB ethernet adapter and a power bank — plus a convenience command
+and a CI fix.
+
 ### Added
 
 - `cableprobe link` — symlinks the launcher into `/usr/local/bin` (`--bin-dir`
@@ -263,7 +269,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.3.9...HEAD
+[0.3.9]: https://github.com/rosscooney/CableProbe/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/rosscooney/CableProbe/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/rosscooney/CableProbe/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/rosscooney/CableProbe/compare/v0.3.5...v0.3.6
