@@ -68,7 +68,8 @@ Each release is also published to
   `asyncio.to_thread`'s shared executor. A genuinely wedged probe used to keep
   its worker alive and could delay the report (or hang the process) at
   interpreter shutdown even after being quarantined; an abandoned daemon thread
-  does not. Follow-up to the earlier Codex-flagged quarantine fix.
+  does not (and if it finishes after the loop is torn down, the result is
+  discarded quietly). Follow-up to the earlier Codex-flagged quarantine fix.
 - The phase-boundary comparison de-duplicates per *transition*, not per device:
   a blatant tamper seen at test-start that was partly walked back by test-end
   is now recorded alongside the lasting change, instead of being dropped
