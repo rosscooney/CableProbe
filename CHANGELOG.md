@@ -69,6 +69,11 @@ Each release is also published to
   mid-evaluation after evidence is collected; a rule that raises for any other
   reason is logged and skipped, not fatal. Reported via a Codex-assisted
   review.
+- The `persistence` probe now fingerprints `mode`, `uid` and `gid` in addition
+  to content, so a permission- or owner-only change to a monitored boot / udev
+  / login file (e.g. made world-writable or setuid, same bytes) is detected;
+  `world_writable` / `setuid_or_setgid` are surfaced as attributes. Reported
+  via a Codex-assisted review.
 
 ## [0.4.5] - 2026-09-10
 

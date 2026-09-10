@@ -69,15 +69,25 @@ def _fingerprint(path: Path) -> dict:
         "regular_file": None,
         "hash_truncated": False,
         "symlink_target": None,
+        "mode": None,  # octal permission string, e.g. "0644"
+        "uid": None,
+        "gid": None,
     }
     try:
-        if os.path.islink(path):
+        lst = os.lstat(path)
+    except OSError:
+        lst = None
+    if lst is not None:
+        if stat.S_ISLNK(lst.st_mode):
             try:
                 info["symlink_target"] = os.readlink(path)
             except OSError:
                 pass
-    except OSError:
-        pass
+        else:
+            # link mode/owner is not meaningful; record the target's below
+            info["mode"] = format(stat.S_IMODE(lst.st_mode), "04o")
+            info["uid"] = lst.st_uid
+            info["gid"] = lst.st_gid
 
     try:
         fd = os.open(path, os.O_RDONLY | _O_NONBLOCK)
@@ -94,6 +104,9 @@ def _fingerprint(path: Path) -> dict:
         st = os.fstat(fd)
         info["present"] = True
         info["size"] = st.st_size
+        info["mode"] = format(stat.S_IMODE(st.st_mode), "04o")
+        info["uid"] = st.st_uid
+        info["gid"] = st.st_gid
         if not stat.S_ISREG(st.st_mode):
             info["regular_file"] = False
             return info
@@ -166,6 +179,13 @@ def scan_persistence(
                     "regular_file": fp["regular_file"],
                     "hash_truncated": fp["hash_truncated"],
                     "symlink_target": fp["symlink_target"],
+                    "mode": fp["mode"],
+                    "uid": fp["uid"],
+                    "gid": fp["gid"],
+                    "world_writable": bool(fp["mode"])
+                    and int(fp["mode"], 8) & 0o002 != 0,
+                    "setuid_or_setgid": bool(fp["mode"])
+                    and int(fp["mode"], 8) & 0o6000 != 0,
                     # true when the item exists but we could not fully hash it
                     "fingerprint_incomplete": bool(
                         fp["present"]

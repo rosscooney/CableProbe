@@ -113,6 +113,7 @@ def test_scan_persistence_hashes_targets(tmp_path):
     assert item.kind == KIND_PERSISTENCE_ITEM
     digest = item.attributes["sha256"]
     assert len(digest) == 64 and item.attributes["present"] is True  # full sha256
+    assert item.attributes["mode"] and item.attributes["uid"] is not None
 
     assert item.attributes["regular_file"] is True
     assert item.attributes["hash_truncated"] is False
@@ -127,6 +128,21 @@ def test_scan_persistence_hashes_targets(tmp_path):
         )
     ).attributes["sha256"]
     assert before != after
+
+
+def test_scan_persistence_detects_a_permission_only_change(tmp_path):
+    import os
+
+    f = tmp_path / "hardening.rules"
+    f.write_text("ACTION==\"add\"\n")
+    os.chmod(f, 0o644)
+    before = scan_persistence(targets=[("udev-rule", str(f))], home_roots=())[0]
+    os.chmod(f, 0o646)  # made world-writable, same bytes
+    after = scan_persistence(targets=[("udev-rule", str(f))], home_roots=())[0]
+
+    assert before.attributes["sha256"] == after.attributes["sha256"]
+    assert before.attributes["mode"] != after.attributes["mode"]
+    assert after.attributes["world_writable"] is True
 
 
 def test_scan_persistence_marks_an_unreadable_file_incomplete(tmp_path, monkeypatch):
