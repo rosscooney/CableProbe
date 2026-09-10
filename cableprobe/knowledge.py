@@ -23,7 +23,7 @@ import yaml
 
 from cableprobe.fsutil import atomic_write
 from cableprobe.logging_config import get_logger
-from cableprobe.models import Delta, Finding
+from cableprobe.models import SEVERITIES, Delta, Finding
 
 log = get_logger("knowledge")
 
@@ -63,12 +63,18 @@ class ImplantList:
         out: list[ImplantEntry] = []
         for row in (data or {}).get("implants", []) or []:
             try:
+                severity = str(row.get("severity") or "high")
+                if severity not in SEVERITIES:
+                    raise ValueError(
+                        f"implant {row.get('vid')}:{row.get('pid')} has severity "
+                        f"{severity!r}; must be one of {list(SEVERITIES)}"
+                    )
                 out.append(
                     ImplantEntry(
                         vid=_hex_id(row["vid"]),
                         pid=_hex_id(row["pid"]),
                         name=str(row.get("name") or "unknown"),
-                        severity=str(row.get("severity") or "high"),
+                        severity=severity,
                         source=str(row.get("source") or ""),
                     )
                 )

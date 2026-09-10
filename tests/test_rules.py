@@ -35,6 +35,15 @@ def _delta(kind, identity, *, change="appeared", first_seen_phase="test", **attr
     )
 
 
+def test_rule_with_invalid_severity_is_rejected():
+    import pytest
+
+    with pytest.raises(Exception):  # pydantic ValidationError
+        RuleSet.from_dict(
+            {"rules": [{"id": "x", "title": "X", "severity": "critcal"}]}
+        )
+
+
 def test_default_ruleset_loads():
     rs = RuleSet.default()
     assert rs.version == 1

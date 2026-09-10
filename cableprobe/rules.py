@@ -19,11 +19,10 @@ import yaml
 from pydantic import BaseModel, Field
 
 from cableprobe.logging_config import get_logger
-from cableprobe.models import Delta, Finding
+from cableprobe.models import SEVERITIES, Delta, Finding, Severity
 
 log = get_logger("rules")
 
-SEVERITIES = ("info", "low", "medium", "high", "critical")
 _SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITIES)}
 
 _DEFAULT_RULES_RESOURCE = "default_rules.yaml"
@@ -119,7 +118,7 @@ class RuleMatch(BaseModel):
 class Rule(BaseModel):
     id: str
     title: str
-    severity: str = "medium"
+    severity: Severity = "medium"
     rationale: str = ""
     match: RuleMatch = Field(default_factory=RuleMatch)
 

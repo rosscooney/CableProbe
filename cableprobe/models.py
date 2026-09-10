@@ -12,11 +12,16 @@ devices, block devices, kernel messages and processes uniformly.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from cableprobe.sanitize import IDENTITY_MAX_LEN, clean_attributes, clean_text
+
+#: The only severities CableProbe understands - anything else falls through
+#: severity ranking and the exit code, so it must be rejected at load time.
+Severity = Literal["info", "low", "medium", "high", "critical"]
+SEVERITIES: tuple[str, ...] = ("info", "low", "medium", "high", "critical")
 
 # --- phase names -----------------------------------------------------------
 
@@ -161,7 +166,7 @@ class Delta(BaseModel):
 class Finding(BaseModel):
     rule_id: str
     title: str
-    severity: str  # info | low | medium | high | critical
+    severity: Severity
     rationale: str = ""
     evidence: list[str] = Field(default_factory=list)
     related_identities: list[str] = Field(default_factory=list)

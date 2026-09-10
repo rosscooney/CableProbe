@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- A detection rule (or a custom known-implant entry) with a misspelled
+  `severity` is now rejected at load time. Previously an unknown value like
+  `critcal` fell through severity ranking and the exit code, so an intended
+  critical finding could exit `0`. Reported via a Codex-assisted review.
+
 ## [0.4.5] - 2026-09-10
 
 ### Changed
