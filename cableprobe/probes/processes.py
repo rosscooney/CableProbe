@@ -22,6 +22,7 @@ import os
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import KIND_PROCESS, Observation
+from cableprobe.redact import redact_cmdline
 
 try:
     import psutil
@@ -109,7 +110,7 @@ class ProcessProbe(Probe):
                             "name": info.get("name"),
                             "username": info.get("username"),
                             "cmdline": (
-                                " ".join(cmdline)
+                                redact_cmdline(cmdline)
                                 if (capture_cmdline and cmdline)
                                 else None
                             ),

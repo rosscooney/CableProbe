@@ -238,6 +238,15 @@ async def run_session(
     findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True)
     summary = build_summary(phases, deltas, findings)
 
+    if config.probes.capture_process_cmdline and any(
+        p.name == "process" for p in probes
+    ):
+        warnings.append(
+            "process: command lines were captured "
+            "(probes.capture_process_cmdline=true). Obvious secrets are masked, "
+            "but review this report before sharing it."
+        )
+
     metadata = SessionMetadata(
         session_name=session_name,
         cableprobe_version=__version__,

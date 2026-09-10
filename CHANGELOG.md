@@ -41,6 +41,10 @@ Each release is also published to
   the file. A report file that somehow already exists is also tightened.
 - `load_report()` and the report picker now refuse a report file larger than
   50 MB instead of loading it straight into memory.
+- Captured process command lines (`probes.capture_process_cmdline`) now have
+  obvious secrets masked — `--password x`, `TOKEN=x`, `user:pass@host` URLs,
+  JWTs and long high-entropy blobs — and a session that captured command lines
+  carries a "review before sharing" warning in its report.
 
 ### Packaging
 

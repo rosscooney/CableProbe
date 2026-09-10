@@ -156,6 +156,30 @@ async def test_unavailable_probe_is_skipped_not_warned(fast_config, monkeypatch)
     assert any("usbc_pd" in u for u in report.metadata.probes_unavailable)
 
 
+async def test_cmdline_capture_adds_a_review_warning(fast_config, monkeypatch):
+    class FakeProcess(FakeProbe):
+        name = "process"
+
+    fake = FakeProcess(fast_config, 0.0, [[]] * 6)
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes", lambda config, session_start: [fake]
+    )
+    assert fast_config.probes.capture_process_cmdline is True
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert any(
+        "capture_process_cmdline" in w and "review" in w.lower()
+        for w in report.metadata.probe_warnings
+    )
+
+    fast_config.probes.capture_process_cmdline = False
+    report2 = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert report2.metadata.probe_warnings == []
+
+
 async def test_run_session_all_probes_unavailable(fast_config, monkeypatch):
     class Dead(Probe):
         name = "dead"

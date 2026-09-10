@@ -508,6 +508,38 @@ def test_process_probe_filters_noise_and_own_children(monkeypatch):
     assert names == {"ModemManager"}  # sleep / own child / pre-session dropped
 
 
+def test_process_probe_redacts_secrets_in_cmdline(monkeypatch):
+    import time
+
+    from cableprobe.probes.processes import ProcessProbe
+
+    now = time.time()
+
+    class P:
+        def __init__(self, info):
+            self.info = info
+
+    procs = [
+        P(
+            {
+                "pid": 42,
+                "name": "loader",
+                "ppid": 1,
+                "create_time": now,
+                "username": "root",
+                "cmdline": ["loader", "--token", "s3cr3tValueGoesHere", "--host", "h"],
+            }
+        )
+    ]
+    monkeypatch.setattr(
+        "cableprobe.probes.processes.psutil.process_iter", lambda fields: procs
+    )
+    (obs,) = ProcessProbe(_CFG, now - 1).snapshot()
+    assert "s3cr3tValueGoesHere" not in obs.attributes["cmdline"]
+    assert "--token ***" in obs.attributes["cmdline"]
+    assert "--host h" in obs.attributes["cmdline"]
+
+
 def test_kernel_log_signal_keywords_exclude_routine_chatter():
     from cableprobe.probes.kernel_log import SIGNAL_KEYWORDS, VERBOSE_KEYWORDS
 
