@@ -17,6 +17,12 @@ Each release is also published to
 
 ### Fixed
 
+- The known-implant blocklist and the allowlist now match a device seen only
+  through a udev add/remove event (a plug-and-vanish that never lands in a
+  snapshot). `udev_monitor` event attributes are normalised to the same
+  `vendor_id` / `product_id` / `serial` schema the snapshot probes use, instead
+  of only the raw `ID_VENDOR_ID` / `ID_MODEL_ID`. Reported via a Codex-assisted
+  review.
 - The `keystroke_cadence` verdict is now taken from the **worst sliding window**
   of consecutive presses, not the whole-session average. A fast injected burst
   bracketed by slow human typing and long pauses used to be averaged below the

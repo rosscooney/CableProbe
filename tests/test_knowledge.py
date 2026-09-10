@@ -117,6 +117,27 @@ def test_apply_allowlist_downgrades_matching_findings():
     assert route.severity == "critical"  # unrelated finding untouched
 
 
+def test_udev_event_attributes_are_normalised_for_implant_matching():
+    from cableprobe.probes.udev_monitor import _extract_attributes
+
+    class FakeDev:
+        subsystem = "usb"
+
+        def get(self, k):
+            return {"ID_VENDOR_ID": "16D0", "ID_MODEL_ID": "0753",
+                    "ID_SERIAL_SHORT": "X1"}.get(k)
+
+    a = _extract_attributes(FakeDev())
+    assert a["vendor_id"] == "16d0" and a["product_id"] == "0753"
+
+    d = _usb_delta("16d0", "0753", identity="usb:1-1.2")
+    d.change = "appeared"
+    d.transient = True
+    assert any(
+        f.rule_id == "known-implant-device" for f in ImplantList.load().check([d])
+    )
+
+
 def test_apply_allowlist_noop_when_empty():
     findings = [Finding(rule_id="x", title="x", severity="high")]
     assert apply_allowlist(findings, [], Allowlist([], None)) is findings

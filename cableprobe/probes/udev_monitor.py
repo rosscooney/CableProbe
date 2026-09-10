@@ -147,6 +147,15 @@ def _extract_attributes(device) -> dict[str, object]:
             attrs[key] = value
     if device.subsystem:
         attrs.setdefault("SUBSYSTEM", device.subsystem)
+    # normalise to the same schema the snapshot probes use, so the known-implant
+    # blocklist and the allowlist match a device seen only through an
+    # add/remove event (a transient plug-and-vanish, never in a snapshot)
+    if device.get("ID_VENDOR_ID"):
+        attrs["vendor_id"] = str(device.get("ID_VENDOR_ID")).lower()
+    if device.get("ID_MODEL_ID"):
+        attrs["product_id"] = str(device.get("ID_MODEL_ID")).lower()
+    if device.get("ID_SERIAL_SHORT"):
+        attrs["serial"] = device.get("ID_SERIAL_SHORT")
     return attrs
 
 
