@@ -982,6 +982,39 @@ def test_udev_event_is_interesting_filters_kernel_internal_subsystems():
     assert event_is_interesting("block", "partition") is False
 
 
+def test_keystroke_reader_quarantines_a_wedged_device_instead_of_busy_looping(monkeypatch):
+    import threading
+    import time as _time
+
+    from cableprobe.probes import keystroke_cadence as ks
+
+    opens = []
+    monkeypatch.setattr(ks.glob, "glob", lambda _pat: ["/dev/input/event9"])
+    monkeypatch.setattr(ks.os, "stat", lambda _n: type("S", (), {"st_rdev": 42})())
+
+    def _open(_node, _flags):
+        opens.append(1)
+        return 999
+
+    monkeypatch.setattr(ks.os, "open", _open)
+    monkeypatch.setattr(ks.os, "close", lambda _fd: None)
+    monkeypatch.setattr(ks.select, "select", lambda r, w, x, t: (list(r), [], []))
+    monkeypatch.setattr(
+        ks.os, "read", lambda *_a: (_ for _ in ()).throw(OSError("EIO"))
+    )
+
+    probe = ks.KeystrokeCadenceProbe(_CFG, 0.0)
+    probe._enabled = True
+    t = threading.Thread(target=probe._run, daemon=True)
+    t.start()
+    _time.sleep(0.4)
+    probe._stop.set()
+    t.join(timeout=2.0)
+
+    # without quarantine this device would be reopened hundreds of times in 0.4s
+    assert len(opens) <= 3
+
+
 async def test_udev_monitor_start_raises_when_the_monitor_cannot_be_created(monkeypatch):
     from cableprobe.probes import udev_monitor
 

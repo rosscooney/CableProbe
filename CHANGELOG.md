@@ -34,6 +34,14 @@ Each release is also published to
   instead of being counted as active while doing nothing. Reported via a
   Codex-assisted review.
 
+### Fixed
+
+- The `keystroke_cadence` reader no longer busy-loops (100% CPU) when an input
+  device disconnects mid-session: a failed read or EOF now closes and drops the
+  descriptor, a wedged device is quarantined for 5 s before any retry, and open
+  devices are tracked by device number so a replacement on a reused
+  `/dev/input/eventN` path is picked up. Reported via a Codex-assisted review.
+
 ### Security
 
 - The `persistence` probe can no longer be hung or OOM-ed by a local user. It

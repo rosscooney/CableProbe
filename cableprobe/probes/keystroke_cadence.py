@@ -169,44 +169,76 @@ class KeystrokeCadenceProbe(Probe):
             thread.join(timeout=3.0)
         self._thread = None
 
+    #: After a read fails, wait this long before re-opening the same device -
+    #: so a wedged device cannot be reopened in a tight loop.
+    _QUARANTINE_SECONDS = 5.0
+
     def _run(self) -> None:  # pragma: no cover - needs real evdev
-        fds: dict[int, str] = {}
+        open_fds: dict[int, tuple[str, int]] = {}  # fd -> (node path, st_rdev)
+        open_rdev: set[int] = set()  # device numbers already open (survives re-plug)
+        quarantine: dict[int, float] = {}  # st_rdev -> monotonic time to retry
+
+        def _drop(fd: int, *, quarantine_it: bool = False) -> None:
+            entry = open_fds.pop(fd, None)
+            if entry is not None:
+                open_rdev.discard(entry[1])
+                if quarantine_it:
+                    quarantine[entry[1]] = time.monotonic() + self._QUARANTINE_SECONDS
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
         try:
             while not self._stop.is_set():
+                now = time.monotonic()
+                quarantine = {r: t for r, t in quarantine.items() if t > now}
                 for node in glob.glob(DEV_INPUT_GLOB):
-                    if node in fds.values():
+                    try:
+                        rdev = os.stat(node).st_rdev
+                    except OSError:
+                        continue
+                    if rdev in open_rdev or rdev in quarantine:
                         continue
                     try:
                         fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
                     except OSError:
                         continue
-                    fds[fd] = node
-                if not fds:
+                    open_fds[fd] = (node, rdev)
+                    open_rdev.add(rdev)
+
+                if not open_fds:
                     time.sleep(0.5)
                     continue
-                readable, _, _ = select.select(list(fds), [], [], 0.5)
+
+                readable, _, errored = select.select(
+                    list(open_fds), [], list(open_fds), 0.5
+                )
+                for fd in errored:
+                    _drop(fd, quarantine_it=True)
                 for fd in readable:
+                    if fd not in open_fds:
+                        continue
                     try:
                         raw = os.read(fd, 65536)
                     except OSError:
+                        _drop(fd, quarantine_it=True)  # EIO - stop spinning on it
                         continue
-                    if not raw:
+                    if not raw:  # EOF - the device disconnected
+                        _drop(fd)
                         continue
                     stamps = parse_key_down_timestamps(raw)
                     if not stamps:
                         continue
-                    name = Path(fds[fd]).name
+                    name = Path(open_fds[fd][0]).name
                     with self._lock:
                         bucket = self._timestamps.setdefault(
                             name, deque(maxlen=MAX_TIMESTAMPS)
                         )
                         bucket.extend(stamps)
         finally:
-            for fd in fds:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+            for fd in list(open_fds):
+                _drop(fd)
 
     def snapshot(self) -> list[Observation]:
         with self._lock:
