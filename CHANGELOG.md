@@ -29,6 +29,16 @@ Each release is also published to
 
 ### Changed
 
+- A probe snapshot now runs on a daemon thread CableProbe starts itself, not
+  `asyncio.to_thread`'s shared executor. A genuinely wedged probe used to keep
+  its worker alive and could delay the report (or hang the process) at
+  interpreter shutdown even after being quarantined; an abandoned daemon thread
+  does not. Follow-up to the earlier Codex-flagged quarantine fix.
+- The phase-boundary comparison de-duplicates per *transition*, not per device:
+  a blatant tamper seen at test-start that was partly walked back by test-end
+  is now recorded alongside the lasting change, instead of being dropped
+  because a change for that device was already logged. Follow-up to the earlier
+  Codex-flagged boundary-comparison fix.
 - `summary.coverage` (and the `--fail-on-findings` exit code) now reflects
   *every* kind of gap: a probe that failed to start, a probe that errored while
   observing, an event storm that overran a buffer (including udev's own

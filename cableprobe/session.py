@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Awaitable, Callable
 
@@ -138,21 +139,56 @@ _SNAPSHOT_TIMEOUT = 45.0
 _MAX_PHASE_EVENTS = 10_000
 
 
+def _swallow_abandoned(fut: asyncio.Future) -> None:
+    """Retrieve the eventual result/exception of a timed-out snapshot future so
+    asyncio does not log 'exception was never retrieved' for it."""
+
+    def _drain(f: asyncio.Future) -> None:
+        if not f.cancelled():
+            try:
+                f.exception()
+            except asyncio.CancelledError:  # pragma: no cover
+                pass
+
+    fut.add_done_callback(_drain)
+
+
 async def _snapshot_one(
     probe: Probe, quarantine: set[str]
 ) -> tuple[list[Observation], list[str]]:
+    # Run the (blocking) snapshot on a *daemon* thread we start ourselves, not
+    # asyncio.to_thread's shared executor: if the probe wedges, a daemon thread
+    # does not block interpreter exit, and we never join it - so a stuck probe
+    # can no longer delay the report or hang the process at shutdown.
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future = loop.create_future()
+
+    def _worker() -> None:
+        try:
+            result = _safe_snapshot(probe)
+        except BaseException as exc:  # noqa: BLE001  # pragma: no cover
+            loop.call_soon_threadsafe(_settle, fut.set_exception, exc)
+        else:
+            loop.call_soon_threadsafe(_settle, fut.set_result, result)
+
+    def _settle(setter, value) -> None:
+        if not fut.done():  # the await may have already timed out
+            setter(value)
+
+    threading.Thread(
+        target=_worker, name=f"cableprobe-snapshot-{probe.name}", daemon=True
+    ).start()
+
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_safe_snapshot, probe), _SNAPSHOT_TIMEOUT
-        )
+        return await asyncio.wait_for(asyncio.shield(fut), _SNAPSHOT_TIMEOUT)
     except (asyncio.TimeoutError, TimeoutError):
-        # The worker thread cannot be cancelled - it keeps running - so once a
-        # probe times out, stop scheduling it: another slow call each phase
-        # would pile up stuck threads and delay the report at shutdown.
+        _swallow_abandoned(fut)
+        # Stop scheduling this probe: another slow call each phase would just
+        # leak another stuck thread.
         quarantine.add(probe.name)
         log.warning(
             "probe %s snapshot exceeded %.0fs - quarantined for the rest of the "
-            "session",
+            "session (its worker thread is abandoned)",
             probe.name,
             _SNAPSHOT_TIMEOUT,
         )
