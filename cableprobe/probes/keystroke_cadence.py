@@ -73,41 +73,60 @@ def parse_key_down_timestamps(
     return out
 
 
+def _window_verdict(intervals: list[float]) -> tuple[bool, bool, float, float]:
+    """(superhuman, robotic, mean_ms, cv) for one run of intervals."""
+
+    mean = sum(intervals) / len(intervals)
+    stdev = (sum((x - mean) ** 2 for x in intervals) / len(intervals)) ** 0.5
+    cv = (stdev / mean) if mean > 0 else 0.0
+    superhuman = mean * 1000 < SUPERHUMAN_MEAN_INTERVAL_MS
+    robotic = cv < ROBOTIC_CV_MAX
+    return superhuman, robotic, mean * 1000, cv
+
+
 def summarise_cadence(timestamps: list[float]) -> dict:
-    """Turn a list of key-press timestamps into timing stats + a verdict."""
+    """Turn a list of key-press timestamps into timing stats + a verdict.
+
+    The verdict is taken from the *worst* sliding window of
+    ``MIN_KEYS_FOR_VERDICT`` consecutive presses, not the whole-session average:
+    a fast injected burst surrounded by slow human typing and long pauses would
+    otherwise be diluted below the thresholds.
+    """
 
     ts = sorted(timestamps)
     n = len(ts)
     summary: dict = {"keystrokes": n}
     if n < 2:
         summary.update(
-            {
-                "superhuman_speed": False,
-                "robotically_regular": False,
-                "looks_injected": False,
-            }
+            {"superhuman_speed": False, "robotically_regular": False, "looks_injected": False}
         )
         return summary
 
     intervals = [b - a for a, b in zip(ts, ts[1:]) if b >= a]
     duration = ts[-1] - ts[0]
-    mean = sum(intervals) / len(intervals)
-    variance = sum((x - mean) ** 2 for x in intervals) / len(intervals)
-    stdev = variance**0.5
-    cv = (stdev / mean) if mean > 0 else 0.0
+    overall_mean = sum(intervals) / len(intervals)
 
-    enough = len(intervals) >= MIN_KEYS_FOR_VERDICT
-    superhuman = enough and mean * 1000 < SUPERHUMAN_MEAN_INTERVAL_MS
-    robotic = enough and cv < ROBOTIC_CV_MAX
+    win = max(MIN_KEYS_FOR_VERDICT - 1, 1)  # intervals per window
+    superhuman = robotic = False
+    burst_mean_ms = burst_cv = None
+    if len(intervals) >= win:
+        for i in range(len(intervals) - win + 1):
+            s, r, m_ms, c = _window_verdict(intervals[i : i + win])
+            if s:
+                superhuman = True
+                burst_mean_ms = m_ms if burst_mean_ms is None else min(burst_mean_ms, m_ms)
+            if r:
+                robotic = True
+                burst_cv = c if burst_cv is None else min(burst_cv, c)
 
     summary.update(
         {
             "duration_s": round(duration, 3),
             "keys_per_second": round((n - 1) / duration, 1) if duration > 0 else None,
-            "mean_interval_ms": round(mean * 1000, 2),
-            "stdev_interval_ms": round(stdev * 1000, 2),
+            "mean_interval_ms": round(overall_mean * 1000, 2),
+            "burst_mean_interval_ms": round(burst_mean_ms, 2) if burst_mean_ms else None,
+            "burst_coefficient_of_variation": round(burst_cv, 4) if burst_cv is not None else None,
             "min_interval_ms": round(min(intervals) * 1000, 2),
-            "coefficient_of_variation": round(cv, 4),
             "superhuman_speed": superhuman,
             "robotically_regular": robotic,
             "looks_injected": bool(superhuman or robotic),

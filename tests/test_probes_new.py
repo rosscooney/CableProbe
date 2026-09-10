@@ -848,6 +848,26 @@ def test_summarise_cadence_human_typing_is_not_flagged():
     assert s["looks_injected"] is False
 
 
+def test_summarise_cadence_burst_is_not_diluted_by_earlier_typing():
+    import random
+
+    rng = random.Random(7)
+    t = 0.0
+    ts = []
+    for _ in range(30):  # slow, irregular human typing
+        t += rng.uniform(0.15, 0.6)
+        ts.append(t)
+    t += 3.0  # a long pause
+    for _ in range(20):  # then a 1 ms injected burst
+        t += 0.001
+        ts.append(t)
+
+    s = summarise_cadence(ts)
+    assert s["looks_injected"] is True
+    assert s["superhuman_speed"] is True
+    assert s["burst_mean_interval_ms"] < 5
+
+
 def test_summarise_cadence_too_few_keys():
     assert summarise_cadence([1.0]) == {
         "keystrokes": 1,

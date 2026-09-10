@@ -17,6 +17,10 @@ Each release is also published to
 
 ### Fixed
 
+- The `keystroke_cadence` verdict is now taken from the **worst sliding window**
+  of consecutive presses, not the whole-session average. A fast injected burst
+  bracketed by slow human typing and long pauses used to be averaged below the
+  thresholds and reported as not injected. Reported via a Codex-assisted review.
 - A monitored persistence file that exists but cannot be read (permission
   denied, or it would block) is no longer reported as *absent*: it is now
   `present` with `fingerprint_incomplete`, which counts toward incomplete
