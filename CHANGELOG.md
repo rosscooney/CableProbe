@@ -64,6 +64,11 @@ Each release is also published to
   `severity` is now rejected at load time. Previously an unknown value like
   `critcal` fell through severity ranking and the exit code, so an intended
   critical finding could exit `0`. Reported via a Codex-assisted review.
+- A detection rule with an invalid regex (`label_regex` / an attribute
+  condition's `regex`) is rejected at load time rather than raising `re.error`
+  mid-evaluation after evidence is collected; a rule that raises for any other
+  reason is logged and skipped, not fatal. Reported via a Codex-assisted
+  review.
 
 ## [0.4.5] - 2026-09-10
 

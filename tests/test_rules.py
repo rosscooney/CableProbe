@@ -44,6 +44,37 @@ def test_rule_with_invalid_severity_is_rejected():
         )
 
 
+def test_rule_with_invalid_regex_is_rejected_at_load():
+    import pytest
+
+    with pytest.raises(Exception):
+        RuleSet.from_dict(
+            {"rules": [{"id": "x", "title": "X", "match": {"label_regex": "["}}]}
+        )
+    with pytest.raises(Exception):
+        RuleSet.from_dict(
+            {"rules": [{"id": "x", "title": "X",
+                        "match": {"attributes": {"all": [{"key": "k", "regex": "("}]}}}]}
+        )
+
+
+def test_one_raising_rule_does_not_sink_the_analysis(monkeypatch):
+    from cableprobe.rules import Rule
+
+    rs = RuleSet.default()
+    real_check = Rule.check
+
+    def _check(self, delta):
+        if self.id == "hid-keyboard-appeared-on-connect":
+            raise RuntimeError("boom")
+        return real_check(self, delta)
+
+    monkeypatch.setattr(Rule, "check", _check)
+    # other rules still run; no exception propagates
+    findings = rs.evaluate_raw([_delta(KIND_NETWORK_INTERFACE, "net:usb0", is_usb=True)])
+    assert any(f.rule_id == "network-interface-appeared-on-connect" for f in findings)
+
+
 def test_default_ruleset_loads():
     rs = RuleSet.default()
     assert rs.version == 1

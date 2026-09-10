@@ -16,12 +16,24 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import SEVERITIES, Delta, Finding, Severity
 
 log = get_logger("rules")
+
+
+def _validated_regex(value: str | None) -> str | None:
+    """Compile now so a bad expression fails at load time, not mid-session."""
+
+    if value is None:
+        return None
+    try:
+        re.compile(value)
+    except re.error as exc:
+        raise ValueError(f"invalid regex {value!r}: {exc}") from exc
+    return value
 
 _SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITIES)}
 
@@ -36,6 +48,11 @@ class AttributeCondition(BaseModel):
     contains: str | None = None
     not_contains: str | None = None
     regex: str | None = None
+
+    @field_validator("regex")
+    @classmethod
+    def _check_regex(cls, value: str | None) -> str | None:
+        return _validated_regex(value)
 
     def evaluate(self, attributes: dict[str, Any]) -> bool:
         present = self.key in attributes and attributes[self.key] is not None
@@ -87,6 +104,11 @@ class RuleMatch(BaseModel):
     attributes: AttributeMatch | None = None
     #: Require at least one related async event with one of these actions.
     event_action: str | list[str] | None = None
+
+    @field_validator("label_regex")
+    @classmethod
+    def _check_label_regex(cls, value: str | None) -> str | None:
+        return _validated_regex(value)
 
     def evaluate(self, delta: Delta) -> bool:
         change = _as_list(self.change)
@@ -203,7 +225,12 @@ class RuleSet(BaseModel):
         raw: list[Finding] = []
         for delta in deltas:
             for rule in self.rules:
-                finding = rule.check(delta)
+                try:
+                    finding = rule.check(delta)
+                except Exception as exc:  # noqa: BLE001 - one bad rule must not
+                    # sink the whole analysis after evidence is already collected
+                    log.warning("rule %s raised on %s: %s", rule.id, delta.identity, exc)
+                    continue
                 if finding is not None:
                     raw.append(finding)
         return raw
