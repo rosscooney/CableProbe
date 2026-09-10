@@ -34,6 +34,16 @@ Each release is also published to
   instead of being counted as active while doing nothing. Reported via a
   Codex-assisted review.
 
+### Security
+
+- The `process` probe can no longer be evaded by naming a process like a
+  kernel thread (`kworker/0:9`) or a shell builtin (`sleep`). Kernel threads
+  are now identified by parentage (pid 2 / a child of it), with the name-prefix
+  check kept only as a fallback for a process that also has no command line;
+  the `sleep`/`usleep` exclusion is validated against the actual argv, so a
+  process merely *calling itself* `sleep` is still reported. Reported via a
+  Codex-assisted review.
+
 ### Fixed
 
 - Per-phase event collection is now capped (`_MAX_PHASE_EVENTS`, 10 000). An
