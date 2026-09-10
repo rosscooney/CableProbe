@@ -17,6 +17,14 @@ Each release is also published to
 
 ### Fixed
 
+- `run_command()` no longer returns a clean exit `0` with missing output when a
+  subprocess exceeds its timeout or leaves a descendant holding the stdout pipe
+  open. The child is now started in its own process group and the whole group is
+  `SIGKILL`ed on timeout (reaching descendants the old `proc.kill()` missed); a
+  single deadline covers both execution and pipe draining; the reader threads
+  hand back buffered data incrementally (via `read1`) instead of only at EOF; and
+  a capture that still cannot finish is returned as `-1` with `.truncated` set
+  and whatever was buffered. Reported via a Codex-assisted review.
 - Ephemeral-range TCP listeners (RPC, mDNS, IDE / peer-discovery helpers) that
   open and close a fresh high port on their own no longer each show up as a
   `disappeared` / `appeared (transient)` phase difference - and no longer fire

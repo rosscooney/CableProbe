@@ -8,9 +8,12 @@ from __future__ import annotations
 import abc
 import collections
 import functools
+import os
 import shutil
+import signal
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -139,6 +142,13 @@ def sysfs_driver(sys_dir: Path | str) -> str | None:
 MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024
 _MAX_STDERR_BYTES = 64 * 1024
 
+#: After the process has exited (or been killed) the reader threads get this
+#: long to drain what is left in the pipe. A descendant that inherited stdout
+#: and outlived its parent - or that escaped the killed process group - can hold
+#: the write end open forever; past this grace the capture is reported
+#: incomplete rather than blocking the snapshot.
+_DRAIN_GRACE_SECONDS = 5.0
+
 
 class Captured(str):
     """A command's stdout. ``.truncated`` is True if it exceeded the cap."""
@@ -160,30 +170,62 @@ class _BoundedReader(threading.Thread):
         self._stream = stream
         self._cap = cap
         self._front_drop = front_drop
-        self.data = b""
+        self._lock = threading.Lock()
+        self._chunks: collections.deque[bytes] = collections.deque()
+        self._size = 0
         self.truncated = False
 
     def run(self) -> None:
-        chunks: collections.deque[bytes] = collections.deque()
-        size = 0
+        # read1(): hand back each syscall's worth as soon as it arrives, so
+        # buffered data is retrievable even if the pipe never reaches EOF
+        # (a descendant holding the write end open). Plain read() would sit on
+        # up to 64 KiB until EOF.
+        reader = getattr(self._stream, "read1", None) or self._stream.read
         try:
-            for chunk in iter(lambda: self._stream.read(65536), b""):
-                if self._front_drop:
-                    chunks.append(chunk)
-                    size += len(chunk)
-                    while size > self._cap and len(chunks) > 1:
-                        size -= len(chunks.popleft())
+            for chunk in iter(lambda: reader(65536), b""):
+                with self._lock:
+                    if self._front_drop:
+                        self._chunks.append(chunk)
+                        self._size += len(chunk)
+                        while self._size > self._cap and len(self._chunks) > 1:
+                            self._size -= len(self._chunks.popleft())
+                            self.truncated = True
+                    elif self._size < self._cap:
+                        take = chunk[: self._cap - self._size]
+                        self._chunks.append(take)
+                        self._size += len(take)
+                        self.truncated = self.truncated or len(take) < len(chunk)
+                    else:
                         self.truncated = True
-                elif size < self._cap:
-                    take = chunk[: self._cap - size]
-                    chunks.append(take)
-                    size += len(take)
-                    self.truncated = self.truncated or len(take) < len(chunk)
-                else:
-                    self.truncated = True
         except (OSError, ValueError):  # pragma: no cover - pipe closed under us
             pass
-        self.data = b"".join(chunks)
+
+    @property
+    def data(self) -> bytes:
+        """What has been drained so far - safe to read while the thread runs,
+        so a reader stuck on a descendant-held pipe still yields partial output.
+        """
+
+        with self._lock:
+            return b"".join(self._chunks)
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill the process *and everything it spawned*.
+
+    ``start_new_session=True`` makes ``proc`` the leader of its own process
+    group, so one ``killpg`` reaches descendants that would otherwise keep the
+    stdout pipe open after the parent is gone.
+    """
+
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):  # pragma: no cover
+        pass
+    try:
+        proc.kill()
+    except OSError:  # pragma: no cover - already dead
+        pass
 
 
 def run_command(args: list[str], *, timeout: float = 15.0) -> tuple[int, Captured, str]:
@@ -193,10 +235,20 @@ def run_command(args: list[str], *, timeout: float = 15.0) -> tuple[int, Capture
     stdout is streamed into a bounded buffer *while the process runs* (oldest
     lines dropped past :data:`MAX_COMMAND_OUTPUT_BYTES`); check
     ``stdout.truncated``.
+
+    One overall deadline covers both process execution and pipe draining. If a
+    descendant inherits stdout and outlives the parent (or escapes the killed
+    process group), the capture is returned as ``-1`` with ``.truncated`` set
+    and whatever was buffered - never a clean ``0`` with missing output.
     """
 
     try:
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
     except FileNotFoundError:
         return -1, _flag("", truncated=False), f"command not found: {args[0]}"
     except OSError as exc:  # pragma: no cover - defensive
@@ -211,16 +263,41 @@ def run_command(args: list[str], *, timeout: float = 15.0) -> tuple[int, Capture
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
         timed_out = True
-    out_reader.join(timeout=5.0)
-    err_reader.join(timeout=5.0)
+        _kill_process_tree(proc)
+        try:
+            proc.wait(timeout=_DRAIN_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:  # pragma: no cover - unkillable zombie
+            pass
+
+    # Bounded drain: once the process is gone the pipe normally EOFs at once. A
+    # reader still alive past the grace is blocked on a descendant that kept the
+    # write end open - take what it has and flag the capture incomplete. The
+    # readers are daemon threads, so a stuck one never blocks interpreter exit.
+    drain_until = time.monotonic() + _DRAIN_GRACE_SECONDS
+    for reader in (out_reader, err_reader):
+        reader.join(timeout=max(0.0, drain_until - time.monotonic()))
+    incomplete = out_reader.is_alive() or err_reader.is_alive()
+    if incomplete and not timed_out:
+        # the process exited cleanly but left a descendant holding the pipe -
+        # reap the group so it does not linger for the rest of the session
+        _kill_process_tree(proc)
 
     out = _truncate_marker(out_reader.data, out_reader.truncated)
     err = err_reader.data.decode("utf-8", "replace")
+    if incomplete:
+        # the buffered prefix is intact from the start here (unlike front-drop
+        # truncation), so keep it and just note the tail is missing
+        out = _flag(out.rstrip("\n") + "\n[... output capture incomplete ...]\n", truncated=True)
+        err = (
+            err
+            + f"\noutput capture incomplete: a child kept stdout open past "
+            f"{timeout}s: {' '.join(args)}"
+        ).strip()
     if timed_out:
         err = (err + f"\ncommand timed out after {timeout}s: {' '.join(args)}").strip()
+        return -1, out, err
+    if incomplete:
         return -1, out, err
     return proc.returncode, out, err
 

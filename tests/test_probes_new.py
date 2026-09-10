@@ -1170,6 +1170,26 @@ def test_run_command_caps_stdout(monkeypatch):
     assert out.rstrip().endswith("399999")  # newest lines kept
 
 
+def test_run_command_incomplete_when_a_descendant_holds_stdout(monkeypatch):
+    import cableprobe.probes.base as base
+
+    monkeypatch.setattr(base, "_DRAIN_GRACE_SECONDS", 1.0)
+    # parent writes one line and exits 0; a backgrounded child inherits stdout
+    # and outlives it, so the pipe never reaches EOF on its own.
+    script = (
+        "import subprocess, sys\n"
+        "sys.stdout.write('partial output\\n'); sys.stdout.flush()\n"
+        "subprocess.Popen(['sleep', '30'])\n"
+        "sys.exit(0)\n"
+    )
+    code, out, err = base.run_command(["python3", "-c", script], timeout=10.0)
+    assert code == -1  # not a clean 0 with missing output
+    assert out.truncated is True
+    assert "partial output" in out  # buffered data is still surfaced
+    assert "output capture incomplete" in out
+    assert "capture incomplete" in err
+
+
 def test_run_command_missing_binary():
     from cableprobe.probes.base import run_command
 
