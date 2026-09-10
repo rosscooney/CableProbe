@@ -49,6 +49,13 @@ Each release is also published to
   process merely *calling itself* `sleep` is still reported. Reported via a
   Codex-assisted review.
 
+### Internal
+
+- `analyse()` indexes phase events by `(kind, identity)` once instead of
+  rescanning the whole event list per delta and again in the transient
+  detector - the analysis was ~O(deltas x events). Reported via a Codex-
+  assisted review.
+
 ### Fixed
 
 - Per-phase event collection is now capped (`_MAX_PHASE_EVENTS`, 10 000). An

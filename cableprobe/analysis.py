@@ -84,8 +84,16 @@ def _diff_attributes(before: dict, after: dict) -> list[AttributeChange]:
     return changes
 
 
-def _events_for(identity: str, kind: str, events: list[ProbeEvent]) -> list[ProbeEvent]:
-    return [e for e in events if e.identity == identity and e.kind == kind]
+def _index_events(
+    events: list[ProbeEvent],
+) -> dict[tuple[str, str], list[ProbeEvent]]:
+    """``(kind, identity) -> events``, built once instead of rescanning the
+    whole list for every delta."""
+
+    index: dict[tuple[str, str], list[ProbeEvent]] = {}
+    for event in events:
+        index.setdefault((event.kind, event.identity), []).append(event)
+    return index
 
 
 def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
@@ -95,8 +103,14 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
     test = phases[PHASE_TEST].end_snapshot.index()
     post = phases[PHASE_POST_TEST].end_snapshot.index()
 
-    test_events = phases[PHASE_TEST].events
-    post_events = phases[PHASE_POST_TEST].events
+    test_by_key = _index_events(phases[PHASE_TEST].events)
+    post_by_key = _index_events(phases[PHASE_POST_TEST].events)
+
+    def test_events_for(kind: str, identity: str) -> list[ProbeEvent]:
+        return test_by_key.get((kind, identity), [])
+
+    def post_events_for(kind: str, identity: str) -> list[ProbeEvent]:
+        return post_by_key.get((kind, identity), [])
 
     keys = set(baseline) | set(test) | set(post)
     deltas: list[Delta] = []
@@ -124,7 +138,7 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                     present_in=present_in,
                     reverted_after_disconnect=not in_post,
                     attributes=current.attributes,
-                    related_events=_events_for(identity, kind, test_events),
+                    related_events=test_events_for(kind, identity),
                 )
             )
         elif not in_base and not in_test and in_post:
@@ -138,7 +152,7 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                     present_in=present_in,
                     reverted_after_disconnect=False,
                     attributes=current.attributes,
-                    related_events=_events_for(identity, kind, post_events),
+                    related_events=post_events_for(kind, identity),
                 )
             )
         elif in_base and not in_test:
@@ -152,7 +166,7 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                     present_in=present_in,
                     reverted_after_disconnect=in_post,
                     attributes=baseline[key].attributes,
-                    related_events=_events_for(identity, kind, test_events),
+                    related_events=test_events_for(kind, identity),
                 )
             )
         elif in_base and in_test:
@@ -168,7 +182,7 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                         present_in=present_in,
                         attributes=test[key].attributes,
                         attribute_changes=changes,
-                        related_events=_events_for(identity, kind, test_events),
+                        related_events=test_events_for(kind, identity),
                     )
                 )
 
@@ -190,14 +204,16 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                         present_in=present_in,
                         attributes=post[key].attributes,
                         attribute_changes=post_changes,
-                        related_events=_events_for(identity, kind, post_events),
+                        related_events=post_events_for(kind, identity),
                     )
                 )
 
-    deltas.extend(_transient_deltas(deltas, baseline, test_events, phase=PHASE_TEST))
+    deltas.extend(
+        _transient_deltas(deltas, baseline, test_by_key, phase=PHASE_TEST)
+    )
     deltas.extend(
         _transient_deltas(
-            deltas, {**baseline, **test}, post_events, phase=PHASE_POST_TEST
+            deltas, {**baseline, **test}, post_by_key, phase=PHASE_POST_TEST
         )
     )
     return deltas
@@ -206,7 +222,7 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
 def _transient_deltas(
     existing: list[Delta],
     seen_in_snapshots: dict[tuple[str, str], Observation],
-    events: list[ProbeEvent],
+    events_by_key: dict[tuple[str, str], list[ProbeEvent]],
     *,
     phase: str,
 ) -> list[Delta]:
@@ -219,13 +235,6 @@ def _transient_deltas(
     """
 
     known = {(d.kind, d.identity) for d in existing}
-    removed_keys: set[tuple[str, str]] = set()
-    events_by_key: dict[tuple[str, str], list[ProbeEvent]] = {}
-    for event in events:
-        key = (event.kind, event.identity)
-        events_by_key.setdefault(key, []).append(event)
-        if event.action in _REMOVE_ACTIONS:
-            removed_keys.add(key)
 
     out: list[Delta] = []
     for key, key_events in events_by_key.items():
@@ -233,7 +242,7 @@ def _transient_deltas(
             continue
         if not any(e.action in _ADD_ACTIONS for e in key_events):
             continue
-        if key not in removed_keys:
+        if not any(e.action in _REMOVE_ACTIONS for e in key_events):
             continue
         known.add(key)
         kind, identity = key
