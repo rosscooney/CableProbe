@@ -1,4 +1,4 @@
 # Copyright (c) 2026-present Stable State Consulting Ltd
 # SPDX-License-Identifier: MIT
 
-# Marker so importlib.resources can locate packaged data files.
+include NOTICE.md CONTRIBUTING.md SECURITY.md DISTRIBUTING.md

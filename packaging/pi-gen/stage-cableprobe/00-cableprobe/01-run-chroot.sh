@@ -1,5 +1,5 @@
 #!/bin/bash -e
-# Copyright (c) 2026 Stable State Consulting Ltd
+# Copyright (c) 2026-present Stable State Consulting Ltd
 # SPDX-License-Identifier: MIT
 #
 # Runs inside the target rootfs. Installs CableProbe into an isolated

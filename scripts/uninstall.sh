@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 Stable State Consulting Ltd
+# Copyright (c) 2026-present Stable State Consulting Ltd
 # SPDX-License-Identifier: MIT
 #
 # Remove a CableProbe install created by scripts/install.sh.

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Stable State Consulting Ltd
+# Copyright (c) 2026-present Stable State Consulting Ltd
 # SPDX-License-Identifier: MIT
 
 """Inline USB VBUS voltage / current via an INA219 on the Pi's I2C bus.

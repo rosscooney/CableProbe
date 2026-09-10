@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Stable State Consulting Ltd
+# Copyright (c) 2026-present Stable State Consulting Ltd
 # SPDX-License-Identifier: MIT
 
 """Plain-language interpretation of a session for the operator.

@@ -354,8 +354,7 @@ The source lives at <https://github.com/rosscooney/CableProbe>. See
 CableProbe does not copy or vendor third-party source code. It depends on a
 small set of Python libraries and, at runtime, invokes standard Linux
 command-line tools as separate, independently installed programs. See
-[NOTICE.md](NOTICE.md) and the "Third-party licensing" note below in the repo
-history / `docs`.
+[NOTICE.md](NOTICE.md) and the note below for details.
 
 Direct Python dependencies and their licences:
 
@@ -367,6 +366,7 @@ Direct Python dependencies and their licences:
 | PyYAML           | MIT                | config and rules parsing                       |
 | rich             | MIT                | console rendering                              |
 | pyudev           | **LGPL-2.1-or-later** | Linux-only; imported as a library — see note |
+| smbus2           | MIT                | optional (`power` probe / INA219); Linux only  |
 | pytest, pytest-asyncio (dev only) | MIT, Apache-2.0 | test suite                        |
 
 **Note on `pyudev`:** `pyudev` is LGPL-2.1-or-later. It is a normal, separately
@@ -384,6 +384,6 @@ invoked as independent programs and do not affect CableProbe's MIT licensing.
 CableProbe is open-source software created by Stable State Consulting Ltd and
 released under the MIT License.
 
-Copyright © 2026 Stable State Consulting Ltd.
+Copyright © 2026-present Stable State Consulting Ltd.
 
 See [LICENSE](LICENSE) for details.

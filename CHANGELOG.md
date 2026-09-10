@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2026 Stable State Consulting Ltd
+Copyright (c) 2026-present Stable State Consulting Ltd
 SPDX-License-Identifier: MIT
 -->
 
@@ -14,6 +14,16 @@ Each release is also published to
 [GitHub](https://github.com/rosscooney/CableProbe/releases).
 
 ## [Unreleased]
+
+### Packaging
+
+- The source distribution now bundles `NOTICE.md`, `CONTRIBUTING.md`,
+  `SECURITY.md` and `DISTRIBUTING.md` (via a new `MANIFEST.in`), matching the
+  publishing checklist. `LICENSE` continues to ship in both the sdist and the
+  wheel.
+- README third-party licence table lists `smbus2` (MIT, optional `power` probe)
+  and drops a stale pointer to a non-existent `docs/` note.
+- Copyright headers standardised to `2026-present`.
 
 ### Fixed
 

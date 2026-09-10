@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2026 Stable State Consulting Ltd
+Copyright (c) 2026-present Stable State Consulting Ltd
 SPDX-License-Identifier: MIT
 -->
 
@@ -79,4 +79,6 @@ See [RELEASING.md](RELEASING.md) for the full step-by-step. In short:
 - [ ] tag `v0.4.1`; publish to PyPI as `cableprobe`
 - [ ] confirm `CABLEPROBE_SRC` / install one-liner point at
       `github.com/rosscooney/CableProbe` (and PyPI once published)
-- [ ] `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`, `SECURITY.md` present in sdist
+- [ ] `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`, `SECURITY.md`, `DISTRIBUTING.md`
+      present in sdist (`LICENSE` via `license-files` in `pyproject.toml`; the
+      rest via [`MANIFEST.in`](MANIFEST.in)) — check with `tar tzf dist/*.tar.gz`
