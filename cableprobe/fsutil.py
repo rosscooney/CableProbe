@@ -27,6 +27,7 @@ from pathlib import Path
 PRIVATE_FILE_MODE = 0o600
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
 
 def atomic_write(path: Path | str, text: str, *, mode: int = PRIVATE_FILE_MODE) -> Path:
@@ -63,22 +64,37 @@ def atomic_write(path: Path | str, text: str, *, mode: int = PRIVATE_FILE_MODE) 
 def read_text_nofollow(
     path: Path | str, *, encoding: str = "utf-8", max_bytes: int | None = None
 ) -> str:
-    """Read a text file, refusing a symlink at the final path component.
+    """Read a regular text file safely.
 
-    Raises ``OSError`` (``ELOOP``) if ``path`` is a symlink, and ``ValueError``
-    if the file is larger than ``max_bytes``. Callers that must tolerate a
-    missing / oddly-typed file already catch ``OSError``.
+    ``O_NOFOLLOW`` (no symlink at the final component) and ``O_NONBLOCK`` plus
+    an ``fstat`` regular-file check mean a symlink, a FIFO or a device planted
+    at a predictable path cannot make this block on ``open`` or ``read``. Reads
+    at most ``max_bytes`` (+1, to detect overflow). Raises ``OSError`` for a
+    non-regular / missing file, ``ValueError`` past ``max_bytes``.
     """
 
-    fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW)
-    with os.fdopen(fd, "r", encoding=encoding) as fh:
-        if max_bytes is not None:
-            size = os.fstat(fd).st_size
-            if size > max_bytes:
-                raise ValueError(
-                    f"{Path(path).name} is {size} bytes (> {max_bytes}); refusing to load"
-                )
-        return fh.read()
+    fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError(f"{Path(path).name} is not a regular file")
+        if max_bytes is not None and st.st_size > max_bytes:
+            raise ValueError(
+                f"{Path(path).name} is {st.st_size} bytes (> {max_bytes}); "
+                "refusing to load"
+            )
+        cap = st.st_size if max_bytes is None else min(st.st_size, max_bytes + 1)
+        chunks: list[bytes] = []
+        got = 0
+        while got < cap:
+            chunk = os.read(fd, min(1024 * 1024, cap - got))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            got += len(chunk)
+    finally:
+        os.close(fd)
+    return b"".join(chunks).decode(encoding)
 
 
 def probe_dir_writable(directory: Path | str) -> None:

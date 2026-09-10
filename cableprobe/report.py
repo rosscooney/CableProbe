@@ -38,6 +38,9 @@ MAX_REPORT_BYTES = 50 * 1024 * 1024
 #: does not have to parse every saved report just to show a one-line summary.
 REPORT_INDEX_NAME = ".cableprobe-index.json"
 
+#: The index holds a few fields per report; a huge one is corrupt or hostile.
+MAX_INDEX_BYTES = 16 * 1024 * 1024
+
 
 def _read_json_capped(path: Path) -> object:
     """``json.loads`` a report file: size-capped, and never through a symlink."""
@@ -60,7 +63,11 @@ def read_report_index(output_dir: Path) -> dict:
     """Load the sidecar index, or ``{}`` if it is missing or unreadable."""
 
     try:
-        data = json.loads(read_text_nofollow(Path(output_dir) / REPORT_INDEX_NAME))
+        data = json.loads(
+            read_text_nofollow(
+                Path(output_dir) / REPORT_INDEX_NAME, max_bytes=MAX_INDEX_BYTES
+            )
+        )
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

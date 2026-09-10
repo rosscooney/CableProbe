@@ -79,6 +79,13 @@ def test_read_text_nofollow_size_cap(tmp_path):
         read_text_nofollow(f, max_bytes=10)
 
 
+def test_read_text_nofollow_rejects_a_fifo(tmp_path):
+    fifo = tmp_path / "index.json"
+    os.mkfifo(fifo)  # open()/read() on this would block a naive reader
+    with pytest.raises(OSError):
+        read_text_nofollow(fifo)
+
+
 def test_probe_dir_writable(tmp_path):
     probe_dir_writable(tmp_path)  # does not raise
     assert list(tmp_path.iterdir()) == []  # cleaned up

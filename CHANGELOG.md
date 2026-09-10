@@ -40,6 +40,14 @@ Each release is also published to
   could not see - is now recorded as a delta. Reported via a Codex-assisted
   review.
 
+### Security
+
+- `read_text_nofollow()` (report and index reads) now opens `O_NONBLOCK` and
+  `fstat`-checks for a regular file, and reads at most the byte cap - so a FIFO
+  or device planted at the predictable `.cableprobe-index.json` path can no
+  longer block a read. The index read has its own 16 MiB cap. Reported via a
+  Codex-assisted review.
+
 ### Fixed
 
 - The `persistence` probe no longer treats a symlinked target as absent (0.4.4
