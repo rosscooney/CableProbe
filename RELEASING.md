@@ -43,10 +43,10 @@ Every release needs a new version number. Edit the `version` field in
 
 ```toml
 [project]
-version = "0.4.3"        # was 0.4.2
+version = "0.4.4"        # was 0.4.3
 ```
 
-Use [semantic versioning](https://semver.org/): patch (`0.4.3`) for fixes, minor
+Use [semantic versioning](https://semver.org/): patch (`0.4.4`) for fixes, minor
 (`0.4.0`) for new features, major (`1.0.0`) for breaking changes.
 
 `pyproject.toml` is the only place to change it. `cableprobe.__version__` (and
@@ -55,15 +55,15 @@ installed package metadata at runtime, so it follows automatically — do not ad
 a hardcoded version string back to `cableprobe/__init__.py`.
 
 Also move the changes you are releasing from `## [Unreleased]` into a new
-`## [0.4.3] - <date>` section in [`CHANGELOG.md`](CHANGELOG.md), and add the
-matching `[0.4.3]: …/compare/v0.4.2...v0.4.3` link at the bottom. The GitHub
+`## [0.4.4] - <date>` section in [`CHANGELOG.md`](CHANGELOG.md), and add the
+matching `[0.4.4]: …/compare/v0.4.3...v0.4.4` link at the bottom. The GitHub
 release notes are the same content.
 
 ```bash
 git checkout main && git pull
-git checkout -b release-0.4.3
-git commit -am "Bump version to 0.4.3, update changelog"
-git push -u origin release-0.4.3
+git checkout -b release-0.4.4
+git commit -am "Bump version to 0.4.4, update changelog"
+git push -u origin release-0.4.4
 # open PR, merge to main
 ```
 
@@ -83,15 +83,15 @@ rm -rf dist build            # don't commit these; they're gitignored
 git checkout main && git pull
 
 # annotated tag matching the pyproject version, prefixed with "v"
-git tag -a v0.4.3 -m "CableProbe 0.4.3"
-git push origin v0.4.3
+git tag -a v0.4.4 -m "CableProbe 0.4.4"
+git push origin v0.4.4
 
 # create the GitHub Release -> triggers the publish workflow
-gh release create v0.4.3 --title "v0.4.3" --notes "What changed in this release."
+gh release create v0.4.4 --title "v0.4.4" --notes "What changed in this release."
 ```
 
 No `gh`? Do the release by hand at
-`https://github.com/rosscooney/CableProbe/releases/new?tag=v0.4.3` — set the
+`https://github.com/rosscooney/CableProbe/releases/new?tag=v0.4.4` — set the
 title, write the notes, click **Publish release**.
 
 ### 5. Watch it publish
@@ -103,7 +103,7 @@ gh run watch --exit-status "$(gh run list --workflow python-publish.yml --limit 
 Or open the **Actions** tab on GitHub. When it's green:
 
 ```bash
-pipx install "cableprobe==0.4.3"     # or: pip install --upgrade cableprobe
+pipx install "cableprobe==0.4.4"     # or: pip install --upgrade cableprobe
 cableprobe --version
 ```
 
@@ -119,5 +119,5 @@ cableprobe --version
   `pyproject.toml` / packaging.
 
 A failed release can be retried: delete the GitHub Release and its tag
-(`git push origin :refs/tags/v0.4.3` and delete it on GitHub), fix the problem,
+(`git push origin :refs/tags/v0.4.4` and delete it on GitHub), fix the problem,
 then repeat from step 4.

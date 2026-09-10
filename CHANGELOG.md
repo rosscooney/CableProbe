@@ -15,6 +15,8 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-10
+
 ### Changed
 
 - The captured-command-line review note now appears only when redaction
@@ -411,7 +413,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/rosscooney/CableProbe/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/rosscooney/CableProbe/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/rosscooney/CableProbe/compare/v0.3.10...v0.4.1
 [0.3.10]: https://github.com/rosscooney/CableProbe/compare/v0.3.9...v0.3.10
