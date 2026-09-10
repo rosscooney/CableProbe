@@ -245,27 +245,41 @@ def ephemeral_port_min(path: str = PROC_IP_LOCAL_PORT_RANGE) -> int:
         return DEFAULT_EPHEMERAL_MIN
 
 
-def annotate_with_ss(observations: list[Observation], ss_output: str) -> None:
-    """Best-effort: fill ``process`` from ``ss -tlnpH`` output, matched on endpoint."""
+_WILDCARD_HOSTS = {"*", "0.0.0.0", "::", "[::]", ""}
 
-    by_endpoint: dict[str, str] = {}
+
+def _norm_endpoint(text: str) -> tuple[str, str]:
+    """``addr:port`` -> ``(canonical addr, port)``; wildcards collapse to ``*``."""
+
+    if text.startswith("["):  # [ipv6]:port
+        host, _, port = text[1:].partition("]:")
+    else:
+        host, _, port = text.rpartition(":")
+    return ("*" if host in _WILDCARD_HOSTS else host, port)
+
+
+def annotate_with_ss(observations: list[Observation], ss_output: str) -> None:
+    """Best-effort: fill ``process`` from ``ss -tlnpH`` output.
+
+    Matched on the normalised ``(address, port)`` - not the port alone, so two
+    listeners on the same port but different addresses get their own process.
+    """
+
+    by_addr_port: dict[tuple[str, str], str] = {}
     for line in ss_output.splitlines():
         fields = line.split()
-        if len(fields) < 4:
+        if len(fields) < 4 or "users:((" not in line:
             continue
-        local = fields[3]
-        process = ""
-        if "users:((" in line:
-            process = line.split("users:((", 1)[1].rstrip(")")
-        by_endpoint[local] = process
+        process = line.split("users:((", 1)[1].rstrip(")")
+        by_addr_port[_norm_endpoint(fields[3])] = process
     for obs in observations:
-        endpoint = obs.attributes.get("endpoint", "")
-        # ss prints ``*`` / ``0.0.0.0`` / ``[::]`` for the wildcard; match on port.
-        port = endpoint.rsplit(":", 1)[-1]
-        for key, proc in by_endpoint.items():
-            if key.rsplit(":", 1)[-1] == port and proc:
-                obs.attributes["process"] = proc
-                break
+        key = _norm_endpoint(obs.attributes.get("endpoint", ""))
+        proc = by_addr_port.get(key)
+        if not proc and key[0] != "*":
+            # a wildcard listener also serves this specific address
+            proc = by_addr_port.get(("*", key[1]))
+        if proc:
+            obs.attributes["process"] = proc
 
 
 class ListenerProbe(Probe):

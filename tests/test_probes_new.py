@@ -423,6 +423,26 @@ def test_annotate_with_ss():
     assert "sshd" in ssh.attributes["process"]
 
 
+def test_annotate_with_ss_distinguishes_same_port_different_address():
+    from cableprobe.models import KIND_LISTENING_SOCKET, Observation
+
+    def _o(endpoint):
+        return Observation(
+            kind=KIND_LISTENING_SOCKET, identity=f"listen:tcp:{endpoint}",
+            label=endpoint, attributes={"endpoint": endpoint},
+        )
+
+    a = _o("127.0.0.1:8080")
+    b = _o("10.0.0.2:8080")
+    ss = (
+        'LISTEN 0 5 127.0.0.1:8080 0.0.0.0:* users:(("goodsvc",pid=1,fd=3))\n'
+        'LISTEN 0 5 10.0.0.2:8080 0.0.0.0:* users:(("EVIL",pid=2,fd=3))\n'
+    )
+    annotate_with_ss([a, b], ss)
+    assert "goodsvc" in a.attributes["process"]
+    assert "EVIL" in b.attributes["process"]  # not attributed to goodsvc
+
+
 PROC_NET_TCP6_SAMPLE = """\
   sl  local_address                         remote_address                        st ... uid ... inode
    0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 700 1 0000 100 0 0 10 0
