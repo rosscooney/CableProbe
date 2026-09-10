@@ -36,6 +36,11 @@ Each release is also published to
 
 ### Security
 
+- Command-line redaction now also covers `curl -u user:pass` / `--user=` (masks
+  the password, keeps the user) and a credential-flag value that starts with
+  `-` (`--password -weird`). It remains best-effort - the default stays on and
+  the "a value was masked" note is unchanged - so a bespoke flag or a secret in
+  a bare argument can still slip through. Reported via a Codex-assisted review.
 - The `process` probe can no longer be evaded by naming a process like a
   kernel thread (`kworker/0:9`) or a shell builtin (`sleep`). Kernel threads
   are now identified by parentage (pid 2 / a child of it), with the name-prefix

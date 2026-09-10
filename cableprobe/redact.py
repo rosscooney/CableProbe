@@ -7,10 +7,12 @@
 during a session. That is useful ("a helper daemon spawned with these flags")
 but argv routinely carries passwords, tokens and API keys, and reports get
 pasted into issues. This is a best-effort scrubber: it catches the common
-shapes (``--password x``, ``TOKEN=x``, ``user:pass@host`` URLs, JWTs, long
-high-entropy blobs) and is deliberately conservative elsewhere so ordinary
-command lines stay readable. It is not a guarantee — the report warning still
-tells the operator to review before sharing.
+shapes (``--password x`` including a value that starts with ``-``, ``TOKEN=x``,
+``curl -u user:pass``, ``user:pass@host`` URLs, JWTs, long high-entropy blobs)
+and is deliberately conservative elsewhere so ordinary command lines stay
+readable. It is not a guarantee - a bespoke secret flag or a secret in a bare
+positional argument still slips through, which is why the report flags a
+session whenever a value was masked.
 """
 
 from __future__ import annotations
@@ -37,6 +39,13 @@ _JWT = re.compile(r"eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}")
 #: Splits ``KEY=VALUE`` / ``KEY:VALUE`` (first separator only).
 _KV = re.compile(r"^(?P<key>[^\s=:]+)(?P<sep>[=:])(?P<val>.+)$", re.DOTALL)
 
+#: Flags whose value is ``user:password`` (curl / wget / git-style). The
+#: username is kept, everything after the first ``:`` is masked.
+_USERPASS_FLAGS = {"-u", "--user", "-U", "--proxy-user"}
+
+#: ``user:password`` -> ``user:***`` (only when we know the arg is a credential).
+_USERPASS = re.compile(r"^([^:\s]+):.+$", re.DOTALL)
+
 
 def _looks_high_entropy(token: str) -> bool:
     """True for a long mixed-class blob that is almost certainly a key/token
@@ -62,6 +71,10 @@ def _is_secret_flag(token: str) -> bool:
     )
 
 
+def _mask_userpass(value: str) -> str:
+    return _USERPASS.sub(rf"\1:{MASK}", value)
+
+
 def redact_arg(token: str) -> str:
     """Redact a single argv token in isolation (no look-ahead)."""
 
@@ -72,8 +85,14 @@ def redact_arg(token: str) -> str:
         token = _JWT.sub(MASK, token)
 
     m = _KV.match(token)
-    if m and _SECRET_WORD.search(m.group("key")):
-        return f"{m.group('key')}{m.group('sep')}{MASK}"
+    if m:
+        key = m.group("key")
+        if key.lstrip("-") in {f.lstrip("-") for f in _USERPASS_FLAGS} and m.group(
+            "sep"
+        ) == "=":
+            return f"{key}={_mask_userpass(m.group('val'))}"
+        if _SECRET_WORD.search(key):
+            return f"{key}{m.group('sep')}{MASK}"
 
     if _looks_high_entropy(token):
         return MASK
@@ -91,14 +110,22 @@ def redact_cmdline(cmdline: list[str] | tuple[str, ...] | str) -> str:
 
     out: list[str] = []
     mask_next = False
+    userpass_next = False
     for arg in args:
         if mask_next:
+            # the value of a credential flag - mask it even if it starts with a
+            # dash (a password can; over-masking a stray flag is the safe error)
             mask_next = False
-            if not arg.startswith("-"):  # the flag's value; a new flag is not
-                out.append(MASK)
-                continue
+            out.append(MASK)
+            continue
+        if userpass_next:
+            userpass_next = False
+            out.append(_mask_userpass(arg))
+            continue
         out.append(redact_arg(arg))
-        if _is_secret_flag(arg):
+        if arg in _USERPASS_FLAGS:
+            userpass_next = True
+        elif _is_secret_flag(arg):
             mask_next = True
     # a trailing "--password" with no following value is left as-is
     return " ".join(out)

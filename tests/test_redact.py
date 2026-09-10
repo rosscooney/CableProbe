@@ -23,6 +23,9 @@ SECRET = "hunter2SuperSecretValue"
         (["j", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcDEF123ghi"],
          "eyJzdWIiOiIxMjM0", "j"),
         (["x", "AKIA" + "aB3" * 15], "aB3aB3aB3", "x"),  # long mixed-class blob
+        (["curl", "-u", f"alice:{SECRET}", "https://api"], SECRET, "alice:"),
+        (["curl", f"--user=bob:{SECRET}"], SECRET, "bob:"),
+        (["app", "--password", f"-{SECRET}"], SECRET, "--password"),  # value starts with -
     ],
 )
 def test_redacts_common_secret_shapes(argv, must_not_contain, must_contain):
@@ -46,9 +49,14 @@ def test_leaves_ordinary_command_lines_intact(argv):
     assert redact_cmdline(argv) == " ".join(argv)
 
 
-def test_secret_flag_followed_by_another_flag_masks_nothing():
+def test_value_after_a_secret_flag_is_always_masked():
+    # over-masking a stray flag is the safe error; a password can start with "-"
     out = redact_cmdline(["app", "--password", "--verbose", "--port", "22"])
-    assert out == "app --password --verbose --port 22"
+    assert out == f"app --password {MASK} --port 22"
+
+
+def test_plain_user_flag_without_a_password_is_untouched():
+    assert redact_cmdline(["id", "-u", "1000"]) == "id -u 1000"
 
 
 def test_accepts_a_string():
