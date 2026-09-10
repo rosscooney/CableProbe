@@ -21,6 +21,7 @@ from pathlib import Path
 
 import yaml
 
+from cableprobe.fsutil import atomic_write
 from cableprobe.logging_config import get_logger
 from cableprobe.models import Delta, Finding
 
@@ -191,11 +192,14 @@ class Allowlist:
         body = yaml.safe_dump(
             {"allow": [e.as_dict() for e in self.entries]}, sort_keys=False
         )
-        self.path.write_text(
+        # atomic + symlink-safe: this often lives under an output dir that may be
+        # writable by other users, and `cableprobe allow` can run as root.
+        atomic_write(
+            self.path,
             "# CableProbe allowlist - devices you trust; their findings are\n"
             "# downgraded to info. Prefer entries WITH a serial: an entry with no\n"
             "# serial trusts any device presenting that vendor:product.\n" + body,
-            encoding="utf-8",
+            mode=0o644,
         )
 
     def match(self, vid: object, pid: object, serial: object) -> AllowEntry | None:

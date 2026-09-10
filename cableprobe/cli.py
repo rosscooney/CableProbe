@@ -24,6 +24,7 @@ import typer
 
 from cableprobe import __version__
 from cableprobe.config import Config
+from cableprobe.fsutil import probe_dir_writable, unsafe_output_dir_reasons
 from cableprobe.knowledge import Allowlist, ImplantList
 from cableprobe.logging_config import setup_logging
 from cableprobe.probes import PROBE_REGISTRY
@@ -80,6 +81,37 @@ def _allowlist_path(cfg: Config) -> Path:
 
 def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _sudo_uid() -> int | None:
+    """The uid behind ``sudo`` (``$SUDO_UID``), or None."""
+
+    raw = os.environ.get("SUDO_UID")
+    try:
+        return int(raw) if raw is not None else None
+    except ValueError:
+        return None
+
+
+def _guard_output_dir(directory: Path, *, hard_fail_on_symlink: bool) -> None:
+    """Warn (yellow) when a root-run session's output dir looks unsafe to write
+    into, and abort if it is a symlink."""
+
+    if not _is_root():
+        return
+    if directory.is_symlink():
+        msg = f"{directory} is a symlink; a root session must not write reports through it"
+        if hard_fail_on_symlink:
+            typer.secho(f"error: {msg}", fg="red", err=True)
+            raise typer.Exit(code=2)
+        typer.secho(f"  WARNING: {msg}", fg="yellow")
+        return
+    for reason in unsafe_output_dir_reasons(directory, invoking_uid=_sudo_uid()):
+        typer.secho(
+            f"  WARNING: {reason} - a planted file there could expose report "
+            "contents; prefer a root-owned --output-dir",
+            fg="yellow",
+        )
 
 
 #: Directories on root's default ``secure_path`` (see ``sudo -V``). If the
@@ -343,6 +375,8 @@ def run(
     # re-validate after overrides
     cfg = Config.model_validate(cfg.model_dump())
 
+    _guard_output_dir(cfg.output_dir, hard_fail_on_symlink=True)
+
     rules_path = rules or cfg.rules_file
     try:
         ruleset = RuleSet.resolve(rules_path)
@@ -451,13 +485,12 @@ def check(
 
     try:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        probe_file = cfg.output_dir / ".cableprobe-write-test"
-        probe_file.write_text("ok", encoding="utf-8")
-        probe_file.unlink()
+        probe_dir_writable(cfg.output_dir)
         typer.secho(f"\noutput dir writable: {cfg.output_dir}", fg="green")
     except OSError as exc:
         typer.secho(f"\noutput dir NOT writable: {cfg.output_dir} ({exc})", fg="red")
         all_ok = False
+    _guard_output_dir(cfg.output_dir, hard_fail_on_symlink=False)
 
     if not _is_root():
         typer.secho(

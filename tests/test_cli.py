@@ -294,6 +294,42 @@ def test_run_warns_when_not_root_but_continues_in_auto(tmp_path, monkeypatch):
     assert "sudo cableprobe run" in result.output
 
 
+def test_run_as_root_aborts_on_symlinked_output_dir(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "sessions"
+    link.symlink_to(real)
+
+    result = runner.invoke(
+        app, ["run", "--auto", "--baseline", "1", "--test", "1", "--post-test", "1",
+              "--output-dir", str(link), "--name", "x"]
+    )
+    assert result.exit_code == 2
+    assert "symlink" in result.output
+
+
+def test_check_as_root_warns_on_world_writable_output_dir(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+    out = tmp_path / "sessions"
+    out.mkdir()
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(f"output_dir: {out}\n")
+    os.chmod(out, 0o777)
+    try:
+        result = runner.invoke(app, ["check", "--config", str(cfg)])
+    finally:
+        os.chmod(out, 0o755)
+    assert "writable by other users" in result.output
+
+
 def test_sudo_hints_and_permanent_link_for_user_local_install(monkeypatch):
     from pathlib import Path
 

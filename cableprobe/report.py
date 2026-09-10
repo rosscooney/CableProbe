@@ -6,10 +6,10 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from cableprobe.advice import build_advice
+from cableprobe.fsutil import PRIVATE_FILE_MODE, atomic_write, read_text_nofollow
 from cableprobe.models import Delta, Finding, SessionReport
 
 try:  # rich ships with Typer, but keep rendering optional
@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover
 
 #: Reports can contain host details, MAC addresses and process command lines;
 #: keep them owner-readable only.
-REPORT_FILE_MODE = 0o600
+REPORT_FILE_MODE = PRIVATE_FILE_MODE
 
 #: Refuse to load a report file larger than this. A well-formed report is a few
 #: hundred KB; anything past this is corrupt or hostile and would only OOM us.
@@ -39,37 +39,10 @@ MAX_REPORT_BYTES = 50 * 1024 * 1024
 REPORT_INDEX_NAME = ".cableprobe-index.json"
 
 
-def _write_private(path: Path, text: str) -> Path:
-    """Write ``text`` to ``path`` as a 0600 file.
-
-    The mode is set when the file is *created* (``os.open`` with a mode
-    argument), so unlike ``write_text()`` + ``chmod()`` there is no window in
-    which the file exists with the umask's default (typically world-readable)
-    permissions. ``fchmod`` afterwards tightens a file that already existed.
-    """
-
-    path = Path(path)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, REPORT_FILE_MODE)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        if hasattr(os, "fchmod"):
-            try:
-                os.fchmod(fd, REPORT_FILE_MODE)
-            except OSError:  # pragma: no cover - unusual filesystems
-                pass
-        fh.write(text)
-    return path
-
-
 def _read_json_capped(path: Path) -> object:
-    """``json.loads`` a file, but reject anything over :data:`MAX_REPORT_BYTES`."""
+    """``json.loads`` a report file: size-capped, and never through a symlink."""
 
-    path = Path(path)
-    size = path.stat().st_size
-    if size > MAX_REPORT_BYTES:
-        raise ValueError(
-            f"{path.name} is {size} bytes (> {MAX_REPORT_BYTES}); refusing to load"
-        )
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(read_text_nofollow(path, max_bytes=MAX_REPORT_BYTES))
 
 
 def report_card(report: SessionReport) -> dict:
@@ -87,7 +60,7 @@ def read_report_index(output_dir: Path) -> dict:
     """Load the sidecar index, or ``{}`` if it is missing or unreadable."""
 
     try:
-        data = json.loads((Path(output_dir) / REPORT_INDEX_NAME).read_text("utf-8"))
+        data = json.loads(read_text_nofollow(Path(output_dir) / REPORT_INDEX_NAME))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -100,7 +73,7 @@ def _write_report_index_entry(output_dir: Path, filename: str, card: dict) -> No
     index = read_report_index(output_dir)
     index[filename] = card
     try:
-        _write_private(index_path, json.dumps(index))
+        atomic_write(index_path, json.dumps(index))
     except OSError:  # pragma: no cover - non-POSIX / unusual filesystems
         pass
 
@@ -149,7 +122,7 @@ def write_report(report: SessionReport, output_dir: Path, *, filename: str | Non
         )
         filename = f"{stamp}-{safe_name}.cableprobe.json"
     path = output_dir / filename
-    _write_private(path, report.to_json())
+    atomic_write(path, report.to_json())
     _write_report_index_entry(output_dir, filename, report_card(report))
     return path
 

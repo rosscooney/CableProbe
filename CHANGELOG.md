@@ -15,6 +15,18 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Security
+
+- Privileged report writes no longer follow symlinks. `write_report`, the
+  index sidecar and `Allowlist.save` now write to a uniquely-named temp file
+  and `rename()` it into place, so a symlink planted at a predictable path in
+  an attacker-writable output directory can no longer redirect a root-owned
+  write onto another file. Report reads use `O_NOFOLLOW`; `cableprobe check`
+  probes writability with an exclusively-created temp file instead of a fixed
+  `.cableprobe-write-test` name; and `cableprobe run` / `check` warn (and
+  `run` aborts) when a root session's output directory is a symlink, foreign-
+  owned, or world-writable. Reported via a Codex-assisted review.
+
 ## [0.4.3] - 2026-09-10
 
 ### Changed

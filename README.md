@@ -269,6 +269,13 @@ strings, device names, kernel log lines) is stripped of control characters and
 length-bounded before it is stored or shown, so a hostile cable cannot inject
 terminal escape sequences via the report or the console summary.
 
+Report and index writes go through an atomic create-and-rename that never
+follows a symlink, so a predictable path under the output directory cannot
+redirect a write. Still, when running as **root**, point `--output-dir` at a
+root-owned directory (`scripts/install.sh` uses `/var/lib/cableprobe/sessions`)
+and don't run from a world-writable working directory — `cableprobe run` warns,
+and aborts on a symlinked output directory.
+
 ### Detection rules
 
 Rules live in YAML (see `cableprobe/data/default_rules.yaml`). Each rule matches

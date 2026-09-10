@@ -94,6 +94,33 @@ def test_write_report_tightens_a_preexisting_loose_file(tmp_path, phase_builder)
     assert stat.S_IMODE(os.stat(victim).st_mode) == 0o600
 
 
+def test_write_report_does_not_follow_a_symlinked_index(tmp_path, phase_builder):
+    outside = tmp_path / "outside"
+    outside.write_text("KEEP ME")
+    (tmp_path / "sessions").mkdir()
+    link = tmp_path / "sessions" / REPORT_INDEX_NAME
+    link.symlink_to(outside)
+
+    write_report(_report(phase_builder), tmp_path / "sessions")
+
+    assert outside.read_text() == "KEEP ME"  # symlink target untouched
+    assert not link.is_symlink()  # replaced by the real index file
+    card = next(iter(read_report_index(tmp_path / "sessions").values()))
+    assert card["session_name"] == "unit-test"
+
+
+def test_load_report_refuses_a_symlinked_report(tmp_path, phase_builder):
+    real = write_report(_report(phase_builder), tmp_path)
+    secret = tmp_path / "secret"
+    secret.write_text("SHADOW")
+    link = tmp_path / "evil.cableprobe.json"
+    link.symlink_to(secret)
+    with pytest.raises(OSError):
+        load_report(link)
+    assert report_card_for(link, None) == {}  # picker degrades, does not read it
+    load_report(real)  # the real one still loads
+
+
 def test_render_summary_escapes_device_markup(phase_builder, capsys):
     from cableprobe.models import KIND_USB_DEVICE
     from tests.conftest import obs as _obs
