@@ -396,16 +396,40 @@ def test_upgrade_command_drops_to_sudo_user_for_pipx(monkeypatch):
         "cableprobe.cli._launcher_path", lambda: Path("/home/pi/.local/bin/cableprobe")
     )
 
+    # only a name that resolves to a real local account reaches `sudo -u`
+    monkeypatch.setattr(
+        "cableprobe.cli._valid_local_user", lambda n: "pi" if n == "pi" else None
+    )
     monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
     monkeypatch.setenv("SUDO_USER", "pi")
     cmd = _upgrade_command()
     assert cmd[:4] == ["sudo", "-u", "pi", "-H"]
     assert "pipx" in cmd
 
+    # a bogus / non-account SUDO_USER is rejected -> plain pipx, no sudo -u
+    monkeypatch.setenv("SUDO_USER", "; rm -rf /")
+    monkeypatch.setattr("cableprobe.cli._path_owner", lambda p: None)
+    assert _upgrade_command() == ["pipx", "upgrade", "cableprobe", "--pip-args=--no-cache-dir"]
+
     # not root -> plain pipx, no sudo prefix
     monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
     monkeypatch.delenv("SUDO_USER", raising=False)
     assert _upgrade_command()[0] == "pipx"
+
+
+def test_valid_local_user_validates_name_and_account():
+    import os
+    import pwd
+
+    from cableprobe.cli import _valid_local_user
+
+    me = pwd.getpwuid(os.getuid()).pw_name
+    assert _valid_local_user(me) == me
+    assert _valid_local_user(None) is None
+    assert _valid_local_user("") is None
+    assert _valid_local_user("root; touch /tmp/x") is None  # shell metachars
+    assert _valid_local_user("-oProxyCommand=x") is None  # leading dash / option smuggling
+    assert _valid_local_user("no_such_account_xyz") is None  # well-formed but not real
 
 
 def test_upgrade_editable_checkout(monkeypatch):

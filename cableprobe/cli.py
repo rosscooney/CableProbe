@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -572,6 +573,26 @@ def _is_editable_install() -> bool:
     return False
 
 
+#: Conservative POSIX login-name shape; also bounds what we hand to ``sudo -u``.
+_USERNAME_RE = re.compile(r"\A[a-z_][a-z0-9_-]{0,31}\Z")
+
+
+def _valid_local_user(name: str | None) -> str | None:
+    """Return ``name`` (canonicalised) only if it is a well-formed login name
+    of a real local account. Guards values passed to ``sudo -u`` - notably
+    ``$SUDO_USER``, which is attacker-influenceable if root's environment is
+    already tainted."""
+
+    if not name or not _USERNAME_RE.match(name):
+        return None
+    try:
+        import pwd
+
+        return pwd.getpwnam(name).pw_name
+    except (KeyError, ImportError):  # not a local account / non-POSIX
+        return None
+
+
 def _path_owner(path: str) -> str | None:
     """Login name that owns ``path`` (pipx venvs are owned by their installer)."""
 
@@ -579,7 +600,7 @@ def _path_owner(path: str) -> str | None:
         import pwd
 
         return pwd.getpwuid(Path(path).stat().st_uid).pw_name
-    except Exception:  # noqa: BLE001 - non-POSIX, missing pwd, stat failure
+    except (OSError, KeyError, ImportError):  # stat failure / unknown uid / non-POSIX
         return None
 
 
@@ -599,8 +620,11 @@ def _upgrade_command() -> list[str] | None:
         cmd = ["pipx", "upgrade", "cableprobe", "--pip-args=--no-cache-dir"]
         # `sudo cableprobe upgrade` runs as root, but a pipx install lives in
         # the *user's* home - pipx as root can't see it. Drop back to the
-        # invoking user.
-        owner = os.environ.get("SUDO_USER") or _path_owner(prefix)
+        # invoking user. Both candidate names are validated as real local
+        # accounts before they reach `sudo -u`.
+        owner = _valid_local_user(os.environ.get("SUDO_USER")) or _valid_local_user(
+            _path_owner(prefix)
+        )
         if _is_root() and owner and owner != "root":
             return ["sudo", "-u", owner, "-H", *cmd]
         return cmd

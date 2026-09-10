@@ -21,6 +21,10 @@ Each release is also published to
   login file instead of a 64-bit prefix. Change detection is this probe's whole
   job, and a truncated digest only needs a 64-bit collision to defeat. The
   observation attribute is renamed `sha256_16` -> `sha256`.
+- `cableprobe upgrade` on a `pipx` install run as root now validates the
+  target username (`$SUDO_USER`, or the venv owner) as a real, well-formed
+  local account before passing it to `sudo -u`, instead of trusting the
+  environment value.
 
 ## [0.4.2] - 2026-09-10
 
