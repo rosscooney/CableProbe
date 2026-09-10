@@ -139,6 +139,32 @@ def test_render_summary_escapes_device_markup(phase_builder, capsys):
     assert "[red]spoofed[/red]" in out
 
 
+def test_loaded_report_cannot_inject_terminal_escapes(tmp_path, phase_builder):
+    from cableprobe.models import Delta, Finding
+
+    report = _report(phase_builder)
+    report.deltas = [
+        Delta(
+            change="appeared",
+            kind="usb_device",
+            identity="usb:1:2",
+            label="hidden\x1b[2Jkeyboard",
+            first_seen_phase="test",
+            present_in={"baseline": False, "test": True, "post_test": False},
+        )
+    ]
+    report.findings = [
+        Finding(rule_id="x", title="t\x1b[2J", severity="high",
+                evidence=["line\x1b]0;title\x07"])
+    ]
+    path = write_report(report, tmp_path)
+    loaded = load_report(path)
+    assert "\x1b" not in loaded.deltas[0].label
+    assert "\x1b" not in loaded.findings[0].title
+    assert "\x1b" not in "".join(loaded.findings[0].evidence)
+    assert "\x1b" not in render_summary(loaded, plain=True)
+
+
 def test_exit_code_reflects_severity(phase_builder):
     report = _report(phase_builder)
     # keyboard rule is "high"

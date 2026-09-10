@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Security
+
+- `Delta`, `AttributeChange` and `Finding` display fields are now sanitised
+  (control characters stripped, length bounded) the same way `Observation` is,
+  so loading a hand-crafted or tampered `.cableprobe.json` can no longer feed
+  terminal escape sequences into the plain-text summary. Reported via a
+  Codex-assisted review.
+
 ### Fixed
 
 - A detection rule (or a custom known-implant entry) with a misspelled

@@ -143,6 +143,17 @@ class AttributeChange(BaseModel):
     before: Any
     after: Any
 
+    @field_validator("key")
+    @classmethod
+    def _clean_key(cls, value: str) -> str:
+        return clean_text(value, max_len=128)
+
+    @field_validator("before", "after")
+    @classmethod
+    def _clean_value(cls, value: Any) -> Any:
+        # a loaded report's attribute values reach the plain summary unescaped
+        return clean_text(value, max_len=300) if isinstance(value, str) else value
+
 
 class Delta(BaseModel):
     """A difference between phases for one ``(kind, identity)``."""
@@ -162,6 +173,19 @@ class Delta(BaseModel):
     #: Related asynchronous events, for evidence.
     related_events: list[ProbeEvent] = Field(default_factory=list)
 
+    @field_validator("change", "kind", "identity", "label", "first_seen_phase")
+    @classmethod
+    def _clean_str_fields(cls, value, info):
+        if value is None:
+            return None
+        limit = IDENTITY_MAX_LEN if info.field_name == "identity" else 300
+        return clean_text(value, max_len=limit)
+
+    @field_validator("attributes")
+    @classmethod
+    def _clean_attrs(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return clean_attributes(value)
+
 
 class Finding(BaseModel):
     rule_id: str
@@ -170,6 +194,16 @@ class Finding(BaseModel):
     rationale: str = ""
     evidence: list[str] = Field(default_factory=list)
     related_identities: list[str] = Field(default_factory=list)
+
+    @field_validator("rule_id", "title", "rationale")
+    @classmethod
+    def _clean_text_fields(cls, value: str) -> str:
+        return clean_text(value, max_len=1000)
+
+    @field_validator("evidence", "related_identities")
+    @classmethod
+    def _clean_list_fields(cls, value: list[str]) -> list[str]:
+        return [clean_text(v, max_len=1000) for v in value]
 
 
 class SessionMetadata(BaseModel):
