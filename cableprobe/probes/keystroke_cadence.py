@@ -196,6 +196,7 @@ class KeystrokeCadenceProbe(Probe):
         open_fds: dict[int, tuple[str, int]] = {}  # fd -> (node path, st_rdev)
         open_rdev: set[int] = set()  # device numbers already open (survives re-plug)
         quarantine: dict[int, float] = {}  # st_rdev -> monotonic time to retry
+        node_rdev: dict[str, int] = {}  # node name -> the device number last seen there
 
         def _drop(fd: int, *, quarantine_it: bool = False) -> None:
             entry = open_fds.pop(fd, None)
@@ -225,6 +226,13 @@ class KeystrokeCadenceProbe(Probe):
                         continue
                     open_fds[fd] = (node, rdev)
                     open_rdev.add(rdev)
+                    name = Path(node).name
+                    if node_rdev.get(name) not in (None, rdev):
+                        # this /dev/input/eventN was reused by a different
+                        # device - don't mix its timing with the old one
+                        with self._lock:
+                            self._timestamps.pop(name, None)
+                    node_rdev[name] = rdev
 
                 if not open_fds:
                     time.sleep(0.5)
