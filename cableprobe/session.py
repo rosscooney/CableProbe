@@ -166,10 +166,13 @@ async def _snapshot_one(
     def _worker() -> None:
         try:
             result = _safe_snapshot(probe)
+            payload = (fut.set_result, result)
         except BaseException as exc:  # noqa: BLE001  # pragma: no cover
-            loop.call_soon_threadsafe(_settle, fut.set_exception, exc)
-        else:
-            loop.call_soon_threadsafe(_settle, fut.set_result, result)
+            payload = (fut.set_exception, exc)
+        try:
+            loop.call_soon_threadsafe(_settle, *payload)
+        except RuntimeError:  # pragma: no cover - loop already closed; nothing to deliver
+            pass
 
     def _settle(setter, value) -> None:
         if not fut.done():  # the await may have already timed out
