@@ -225,6 +225,29 @@ class SessionMetadata(BaseModel):
     #: full picture, so a clean result is not conclusive.
     probe_snapshot_errors: dict[str, str] = Field(default_factory=dict)
 
+    @field_validator("session_name", "cableprobe_version")
+    @classmethod
+    def _clean_str(cls, value: str) -> str:
+        return clean_text(value, max_len=256)
+
+    @field_validator("probes_used", "probes_unavailable", "probe_warnings")
+    @classmethod
+    def _clean_str_list(cls, value: list[str]) -> list[str]:
+        return [clean_text(v, max_len=500) for v in value]
+
+    @field_validator("host", "config")
+    @classmethod
+    def _clean_dict(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return clean_attributes(value)
+
+    @field_validator("probe_snapshot_errors")
+    @classmethod
+    def _clean_err_dict(cls, value: dict[str, str]) -> dict[str, str]:
+        return {
+            clean_text(k, max_len=128): clean_text(v, max_len=500)
+            for k, v in value.items()
+        }
+
 
 class SessionReport(BaseModel):
     metadata: SessionMetadata

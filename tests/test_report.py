@@ -157,11 +157,16 @@ def test_loaded_report_cannot_inject_terminal_escapes(tmp_path, phase_builder):
         Finding(rule_id="x", title="t\x1b[2J", severity="high",
                 evidence=["line\x1b]0;title\x07"])
     ]
+    report.metadata = report.metadata.model_copy(
+        update={"session_name": "sess\x1b[2Sion", "probe_warnings": ["w\x1b[3J"]}
+    )
     path = write_report(report, tmp_path)
     loaded = load_report(path)
     assert "\x1b" not in loaded.deltas[0].label
     assert "\x1b" not in loaded.findings[0].title
     assert "\x1b" not in "".join(loaded.findings[0].evidence)
+    assert "\x1b" not in loaded.metadata.session_name
+    assert "\x1b" not in "".join(loaded.metadata.probe_warnings)
     assert "\x1b" not in render_summary(loaded, plain=True)
 
 

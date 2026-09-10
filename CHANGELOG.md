@@ -28,7 +28,8 @@ Each release is also published to
 
 ### Security
 
-- `Delta`, `AttributeChange` and `Finding` display fields are now sanitised
+- `Delta`, `AttributeChange`, `Finding` **and `SessionMetadata`** display
+  fields (session name, host values, probe warnings/errors) are now sanitised
   (control characters stripped, length bounded) the same way `Observation` is,
   so loading a hand-crafted or tampered `.cableprobe.json` can no longer feed
   terminal escape sequences into the plain-text summary. Reported via a
