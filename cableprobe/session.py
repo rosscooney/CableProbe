@@ -109,12 +109,30 @@ def _safe_snapshot(probe: Probe) -> tuple[list[Observation], list[str]]:
         return [], [f"{probe.name}: {exc}"]
 
 
+#: A single probe snapshot should be quick (sysfs reads, one or two subprocess
+#: calls that carry their own 15s timeout). Past this it is wedged - a hung
+#: file read, a stuck tool - and the phase must not wait on it forever.
+_SNAPSHOT_TIMEOUT = 45.0
+
+
+async def _snapshot_one(probe: Probe) -> tuple[list[Observation], list[str]]:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_safe_snapshot, probe), _SNAPSHOT_TIMEOUT
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        log.warning(
+            "probe %s snapshot exceeded %.0fs - abandoning it for this phase",
+            probe.name,
+            _SNAPSHOT_TIMEOUT,
+        )
+        return [], [f"{probe.name}: snapshot timed out after {_SNAPSHOT_TIMEOUT:.0f}s"]
+
+
 async def _capture(probes: list[Probe]) -> SystemSnapshot:
     # Probe snapshots block on subprocesses / sysfs; run them off the event loop
-    # so enabled probes are actually captured concurrently.
-    results = await asyncio.gather(
-        *(asyncio.to_thread(_safe_snapshot, p) for p in probes)
-    )
+    # so enabled probes are actually captured concurrently, each with a deadline.
+    results = await asyncio.gather(*(_snapshot_one(p) for p in probes))
     observations: list[Observation] = []
     errors: list[str] = []
     for obs, errs in results:

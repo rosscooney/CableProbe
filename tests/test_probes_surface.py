@@ -114,6 +114,9 @@ def test_scan_persistence_hashes_targets(tmp_path):
     digest = item.attributes["sha256"]
     assert len(digest) == 64 and item.attributes["present"] is True  # full sha256
 
+    assert item.attributes["regular_file"] is True
+    assert item.attributes["hash_truncated"] is False
+
     # a byte change moves the hash -> a delta later
     before = item.attributes["sha256"]
     (rules / "99-evil.rules").write_text("changed\n", encoding="utf-8")
@@ -124,6 +127,42 @@ def test_scan_persistence_hashes_targets(tmp_path):
         )
     ).attributes["sha256"]
     assert before != after
+
+
+def test_scan_persistence_does_not_hang_on_a_fifo_authorized_keys(tmp_path):
+    import os
+
+    # a local user plants a FIFO at ~/.ssh/authorized_keys; read() would block
+    home = tmp_path / "mallory"
+    (home / ".ssh").mkdir(parents=True)
+    os.mkfifo(home / ".ssh" / "authorized_keys")
+
+    out = scan_persistence(targets=[], home_roots=(str(tmp_path),))
+    item = next(o for o in out if o.identity.endswith("authorized_keys"))
+    assert item.attributes["present"] is True
+    assert item.attributes["regular_file"] is False
+    assert item.attributes["sha256"] is None
+
+
+def test_scan_persistence_caps_a_huge_file(tmp_path, monkeypatch):
+    import cableprobe.probes.persistence as mod
+
+    monkeypatch.setattr(mod, "_MAX_HASH_BYTES", 64)
+    big = tmp_path / "hosts"
+    big.write_bytes(b"x" * 4096)
+    (item,) = scan_persistence(targets=[("hosts", str(big))], home_roots=())
+    assert item.attributes["hash_truncated"] is True
+    assert len(item.attributes["sha256"]) == 64  # still a valid digest (of the prefix)
+
+
+def test_scan_persistence_will_not_follow_a_symlink(tmp_path):
+    secret = tmp_path / "secret"
+    secret.write_text("PRIVATE KEY")
+    link = tmp_path / "authorized_keys"
+    link.symlink_to(secret)
+    (item,) = scan_persistence(targets=[("keys", str(link))], home_roots=())
+    assert item.attributes["sha256"] is None  # O_NOFOLLOW refused it
+    assert item.attributes["present"] is False
 
 
 # --------------------------------------------------------------------------

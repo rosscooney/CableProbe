@@ -28,6 +28,13 @@ Each release is also published to
 
 ### Security
 
+- The `persistence` probe can no longer be hung or OOM-ed by a local user. It
+  opens each target with `O_NOFOLLOW | O_NONBLOCK`, hashes only regular files
+  (a FIFO or a symlink to `/dev/zero` planted at a discovered `authorized_keys`
+  path is recorded, not read), and caps the hash at 8 MiB (`hash_truncated`
+  flag). Each probe snapshot also has a 45 s deadline; a wedged probe is
+  abandoned for that phase and shows up as incomplete coverage. Reported via a
+  Codex-assisted review.
 - The device allowlist no longer lets one trusted device silence findings
   about another. Allowlisting is now applied per device *before* findings are
   consolidated, so a trusted keyboard on a hub can't downgrade the "HID

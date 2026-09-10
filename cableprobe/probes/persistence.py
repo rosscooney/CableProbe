@@ -15,6 +15,8 @@ Content-hashed, so a touch that doesn't change the bytes is ignored.
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 from pathlib import Path
 
 from cableprobe.logging_config import get_logger
@@ -40,15 +42,59 @@ _TARGETS: list[tuple[str, str]] = [
 
 _HOME_ROOTS = ("/root", "/home")
 
+#: Cap on how much of a persistence file we hash. These files are tiny; a huge
+#: one is a mistake or an attempt to make the scan expensive.
+_MAX_HASH_BYTES = 8 * 1024 * 1024
 
-def _hash_file(path: Path) -> str | None:
-    # Full digest: this probe's adversary is an implant that wants to change a
-    # persistence file *without* changing the hash we record, so a truncated
-    # digest would only need a 64-bit collision on content it partly controls.
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+
+
+def _fingerprint(path: Path) -> dict:
+    """Hash ``path`` safely.
+
+    Opens with ``O_NOFOLLOW | O_NONBLOCK`` (a symlink or a FIFO can't make us
+    block or follow it elsewhere), rejects anything that is not a regular file,
+    and hashes at most :data:`_MAX_HASH_BYTES`. A local user who plants a FIFO
+    or a symlink to ``/dev/zero`` at a discovered ``authorized_keys`` path can
+    no longer hang or OOM the session.
+    """
+
+    info: dict = {
+        "sha256": None,
+        "size": None,
+        "present": False,
+        "regular_file": None,
+        "hash_truncated": False,
+    }
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK)
     except OSError:
-        return None
+        return info
+    try:
+        st = os.fstat(fd)
+        info["present"] = True
+        info["size"] = st.st_size
+        if not stat.S_ISREG(st.st_mode):
+            info["regular_file"] = False
+            return info
+        info["regular_file"] = True
+        digest = hashlib.sha256()
+        remaining = _MAX_HASH_BYTES
+        while remaining > 0:
+            chunk = os.read(fd, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            digest.update(chunk)
+            remaining -= len(chunk)
+        else:
+            info["hash_truncated"] = bool(os.read(fd, 1))
+        info["sha256"] = digest.hexdigest()
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+    return info
 
 
 def _authorized_keys_paths(home_roots: tuple[str, ...] = _HOME_ROOTS) -> list[Path]:
@@ -86,11 +132,7 @@ def scan_persistence(
         if key in seen:
             return
         seen.add(key)
-        digest = _hash_file(path)
-        try:
-            size = path.stat().st_size
-        except OSError:
-            size = None
+        fp = _fingerprint(path)
         observations.append(
             Observation(
                 kind=KIND_PERSISTENCE_ITEM,
@@ -99,9 +141,11 @@ def scan_persistence(
                 attributes={
                     "path": key,
                     "category": label,
-                    "sha256": digest,
-                    "size": size,
-                    "present": digest is not None,
+                    "sha256": fp["sha256"],
+                    "size": fp["size"],
+                    "present": fp["present"],
+                    "regular_file": fp["regular_file"],
+                    "hash_truncated": fp["hash_truncated"],
                 },
             )
         )
