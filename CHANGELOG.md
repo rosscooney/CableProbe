@@ -15,6 +15,16 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- Ephemeral-range TCP listeners are now dropped from the phase diff unless the
+  same port is seen in **two or more** phase snapshots. 0.4.6 still kept one
+  that happened to be alive at a single end-of-phase snapshot, so an idle host
+  where ~5 short-lived high-port sockets churn every poll still produced a
+  table of `appeared` rows and fired `new-ephemeral-listener-on-connect`. A
+  port deliberately bound in that range (a callback backdoor) persists across
+  snapshots and is still reported. Reported from a real idle-host run.
+
 ## [0.4.6] - 2026-09-10
 
 ### Changed

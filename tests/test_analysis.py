@@ -123,15 +123,17 @@ def test_ephemeral_listener_churn_is_filtered_but_persistent_one_is_kept(phase_b
 
     phases = phase_builder(
         baseline_end=[sock(45001, True), sock(4444, False)],
-        test_end=[sock(46002, True)],
+        test_end=[sock(46002, True), sock(47003, True)],
         post_end=[sock(46002, True)],
     )
     d = _by_identity(analyse(phases))
     # the baseline ephemeral listener that simply closed -> not a phase difference
     assert "listen:tcp:0.0.0.0:45001" not in d
+    # a high port seen in only the test snapshot -> throwaway socket, not signal
+    assert "listen:tcp:0.0.0.0:47003" not in d
     # a fixed-port listener that disappeared is still real signal
     assert d["listen:tcp:0.0.0.0:4444"].change == "disappeared"
-    # a NEW ephemeral listener that actually stuck around is kept
+    # a NEW ephemeral listener present across two snapshots (test + post) is kept
     assert d["listen:tcp:0.0.0.0:46002"].change == "appeared"
 
 

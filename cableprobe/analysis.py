@@ -267,18 +267,22 @@ def _is_ephemeral_listener_churn(d: Delta) -> bool:
     """An ephemeral-range listening socket that only came and went.
 
     RPC, mDNS, peer-discovery and IDE-helper sockets bind a fresh high port on
-    every restart and drop it again on their own. Feeding each poll-to-poll flip
-    of one into the phase diff buries the report in ``disappeared`` /
-    ``appeared (transient)`` rows and fires ``transient-device-during-test`` on a
-    host with nothing plugged in. A *new* ephemeral listener that actually
-    settled into a test / post-test steady state is kept - so a service that
-    deliberately binds a fixed port in that range still surfaces.
+    every restart and drop it again on their own. Because the identity is keyed
+    on the port number, every poll sees a different set of them "appear" and
+    "disappear" - which buried the report in rows and fired
+    ``transient-device-during-test`` / ``new-ephemeral-listener-on-connect`` on
+    a host with nothing plugged in.
+
+    A socket that deliberately binds a fixed port in the ephemeral range (a
+    callback backdoor) is present across *more than one* steady-state snapshot;
+    a high port seen in exactly one snapshot is the kernel handing a throwaway
+    number to a short-lived socket. So: drop an ephemeral-listener delta unless
+    the socket was seen in at least two phase snapshots.
     """
 
     if d.kind != KIND_LISTENING_SOCKET or not d.attributes.get("ephemeral_port"):
         return False
-    settled = d.present_in.get(PHASE_TEST) or d.present_in.get(PHASE_POST_TEST)
-    return not (d.change == "appeared" and settled)
+    return sum(1 for present in d.present_in.values() if present) < 2
 
 
 def _change_signature(change: str, attribute_changes: list[AttributeChange]) -> tuple:
