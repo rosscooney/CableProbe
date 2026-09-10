@@ -65,6 +65,33 @@ def test_report_written_owner_only(tmp_path, phase_builder):
     path = write_report(_report(phase_builder), tmp_path)
     mode = stat.S_IMODE(os.stat(path).st_mode)
     assert mode == 0o600
+    # the sidecar index carries the same session data -> same protection
+    index_mode = stat.S_IMODE(os.stat(tmp_path / REPORT_INDEX_NAME).st_mode)
+    assert index_mode == 0o600
+
+
+def test_report_never_world_readable_even_under_loose_umask(tmp_path, phase_builder):
+    import os
+    import stat
+
+    old = os.umask(0o000)  # would make write_text() create a 0o666 file
+    try:
+        path = write_report(_report(phase_builder), tmp_path)
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_write_report_tightens_a_preexisting_loose_file(tmp_path, phase_builder):
+    import os
+    import stat
+
+    stamp = "20260101T000000Z"
+    victim = tmp_path / f"{stamp}-unit-test.cableprobe.json"
+    victim.write_text("{}")
+    os.chmod(victim, 0o666)
+    write_report(_report(phase_builder), tmp_path)
+    assert stat.S_IMODE(os.stat(victim).st_mode) == 0o600
 
 
 def test_render_summary_escapes_device_markup(phase_builder, capsys):

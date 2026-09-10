@@ -35,6 +35,10 @@ Each release is also published to
 
 ### Security
 
+- Session reports (and the new index sidecar) are now created `0600` at
+  `open()` time instead of being written with default permissions and then
+  `chmod`-ed, closing the brief window in which another local user could open
+  the file. A report file that somehow already exists is also tightened.
 - `load_report()` and the report picker now refuse a report file larger than
   50 MB instead of loading it straight into memory.
 
