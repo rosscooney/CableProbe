@@ -93,9 +93,29 @@ def _sudo_uid() -> int | None:
         return None
 
 
-def _guard_output_dir(directory: Path, *, hard_fail_on_symlink: bool) -> None:
+def _tighten_output_dir(directory: Path, *, interactive: bool) -> None:
+    """Offer to remove group/other write from an output dir we own; failing
+    that, print the exact command to run."""
+
+    quoted = shlex.quote(str(directory))
+    if interactive and sys.stdin.isatty() and typer.confirm(
+        f"  Remove group/other write from {directory} now?", default=False
+    ):
+        try:
+            mode = stat.S_IMODE(directory.stat().st_mode)
+            directory.chmod(mode & ~(stat.S_IWGRP | stat.S_IWOTH))
+            typer.secho(f"  tightened {directory}", fg="green")
+            return
+        except OSError as exc:
+            typer.secho(f"  could not chmod {directory}: {exc}", fg="red", err=True)
+    typer.secho(f"    to fix: chmod go-w {quoted}", fg="bright_black")
+
+
+def _guard_output_dir(
+    directory: Path, *, hard_fail_on_symlink: bool, interactive: bool = False
+) -> None:
     """Warn (yellow) when a root-run session's output dir looks unsafe to write
-    into, and abort if it is a symlink."""
+    into, offer or explain the fix, and abort if it is a symlink."""
 
     if not _is_root():
         return
@@ -106,11 +126,21 @@ def _guard_output_dir(directory: Path, *, hard_fail_on_symlink: bool) -> None:
             raise typer.Exit(code=2)
         typer.secho(f"  WARNING: {msg}", fg="yellow")
         return
-    for reason in unsafe_output_dir_reasons(directory, invoking_uid=_sudo_uid()):
+
+    reasons = unsafe_output_dir_reasons(directory, invoking_uid=_sudo_uid())
+    for reason in reasons:
         typer.secho(
             f"  WARNING: {reason} - a planted file there could expose report "
             "contents; prefer a root-owned --output-dir",
             fg="yellow",
+        )
+    foreign_owner = any("owned by uid" in r for r in reasons)
+    if any("writable by other users" in r for r in reasons) and not foreign_owner:
+        _tighten_output_dir(directory, interactive=interactive)
+    elif foreign_owner:
+        typer.secho(
+            f"    to fix: sudo chown -R root: {shlex.quote(str(directory))}",
+            fg="bright_black",
         )
 
 
@@ -375,7 +405,11 @@ def run(
     # re-validate after overrides
     cfg = Config.model_validate(cfg.model_dump())
 
-    _guard_output_dir(cfg.output_dir, hard_fail_on_symlink=True)
+    _guard_output_dir(
+        cfg.output_dir,
+        hard_fail_on_symlink=True,
+        interactive=cfg.session.interactive,
+    )
 
     unknown = [n for n in cfg.probes.enabled if n not in PROBE_REGISTRY]
     if unknown:
@@ -500,7 +534,7 @@ def check(
     except OSError as exc:
         typer.secho(f"\noutput dir NOT writable: {cfg.output_dir} ({exc})", fg="red")
         all_ok = False
-    _guard_output_dir(cfg.output_dir, hard_fail_on_symlink=False)
+    _guard_output_dir(cfg.output_dir, hard_fail_on_symlink=False, interactive=True)
 
     if not _is_root():
         typer.secho(

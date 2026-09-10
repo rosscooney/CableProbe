@@ -345,6 +345,39 @@ def test_check_as_root_warns_on_world_writable_output_dir(tmp_path, monkeypatch)
     assert "writable by other users" in result.output
 
 
+def test_guard_output_dir_offers_a_fix_for_a_dir_we_own(tmp_path, monkeypatch):
+    import os
+
+    from cableprobe.cli import _guard_output_dir
+
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+    # owned by the test user; pretend that user is the one behind sudo
+    monkeypatch.setattr("cableprobe.cli._sudo_uid", lambda: os.getuid())
+    out = tmp_path / "sessions"
+    out.mkdir()
+    os.chmod(out, 0o777)
+    try:
+        # non-interactive -> prints the exact command
+        _guard_output_dir(out, hard_fail_on_symlink=False, interactive=False)
+    finally:
+        os.chmod(out, 0o755)
+
+
+def test_tighten_output_dir_chmods_when_confirmed(tmp_path, monkeypatch):
+    import os
+    import stat as _stat
+
+    from cableprobe.cli import _tighten_output_dir
+
+    out = tmp_path / "sessions"
+    out.mkdir()
+    os.chmod(out, 0o777)
+    monkeypatch.setattr("cableprobe.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("cableprobe.cli.typer.confirm", lambda *a, **k: True)
+    _tighten_output_dir(out, interactive=True)
+    assert not _stat.S_IMODE(out.stat().st_mode) & (_stat.S_IWGRP | _stat.S_IWOTH)
+
+
 def test_sudo_hints_and_permanent_link_for_user_local_install(monkeypatch):
     from pathlib import Path
 

@@ -17,6 +17,9 @@ Each release is also published to
 
 ### Changed
 
+- The "output directory is writable by other users" warning is now actionable:
+  `cableprobe run` / `check` offer to `chmod go-w` a directory you own (or print
+  the exact command), and suggest `chown -R root:` for a foreign-owned one.
 - `run_command()` caps captured stdout at 8 MiB (oldest lines dropped, a marker
   prepended) and the `kernel_log` probe passes `--lines 100000` to
   `journalctl`, so a device that storms the kernel log can no longer grow the
