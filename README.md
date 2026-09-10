@@ -248,8 +248,7 @@ probes:
   kernel_log_verbose: false       # true => also keep routine enumeration chatter
   capture_process_cmdline: true   # false => store only the executable name.
                                   # when true, obvious secrets in argv (--password,
-                                  # TOKEN=, user:pass@ URLs, JWTs) are masked and
-                                  # the report carries a "review before sharing" note
+                                  # TOKEN=, user:pass@ URLs, JWTs) are masked
   capture_keystroke_timing: true  # false => disable the keystroke_cadence probe
   power_i2c_bus: 1                 # `power` probe: INA219 location + calibration
   power_i2c_address: 0x40
@@ -263,8 +262,9 @@ Reports are written with mode `0600` (they can contain host details, MAC
 addresses and process command lines). When `capture_process_cmdline` is on,
 CableProbe masks the common secret shapes in captured command lines
 (`--password x`, `TOKEN=x`, `user:pass@host` URLs, JWTs, long high-entropy
-blobs) on a best-effort basis and flags the report for review before sharing.
-All device-supplied text (USB descriptor
+blobs) on a best-effort basis; if it actually masks a value, the report adds a
+one-line note to check the rest of it before sharing. All device-supplied text
+(USB descriptor
 strings, device names, kernel log lines) is stripped of control characters and
 length-bounded before it is stored or shown, so a hostile cable cannot inject
 terminal escape sequences via the report or the console summary.

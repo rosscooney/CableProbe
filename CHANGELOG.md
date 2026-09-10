@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- The captured-command-line review note now appears only when redaction
+  actually masked a value this session, instead of on every run that had
+  `capture_process_cmdline` enabled. Plain command-line capture is documented,
+  not something to warn about each time.
+
 ### Security
 
 - The `persistence` probe now records the full SHA-256 of each boot / udev /

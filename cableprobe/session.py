@@ -14,6 +14,7 @@ from cableprobe.analysis import analyse, build_summary
 from cableprobe.config import Config
 from cableprobe.logging_config import get_logger
 from cableprobe.models import (
+    KIND_PROCESS,
     PHASE_BASELINE,
     PHASE_ORDER,
     PHASE_POST_TEST,
@@ -28,6 +29,7 @@ from cableprobe.models import (
 )
 from cableprobe.knowledge import Allowlist, ImplantList, apply_allowlist
 from cableprobe.probes import Probe, build_probes
+from cableprobe.redact import MASK as _REDACT_MASK
 from cableprobe.rules import _SEVERITY_RANK, RuleSet
 from cableprobe.system_info import collect_host_info
 
@@ -58,6 +60,19 @@ _PHASE_PROMPTS = {
 async def _maybe_await(value: Awaitable[None] | None) -> None:
     if asyncio.iscoroutine(value):
         await value
+
+
+def _cmdline_secret_was_masked(phases: dict[str, PhaseObservation]) -> bool:
+    """True if any captured process command line had a value redacted."""
+
+    for phase in phases.values():
+        for snap in (phase.start_snapshot, phase.end_snapshot):
+            for obs in snap.observations:
+                if obs.kind == KIND_PROCESS:
+                    cmdline = obs.attributes.get("cmdline")
+                    if isinstance(cmdline, str) and _REDACT_MASK in cmdline:
+                        return True
+    return False
 
 
 def _safe_snapshot(probe: Probe) -> tuple[list[Observation], list[str]]:
@@ -238,13 +253,14 @@ async def run_session(
     findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True)
     summary = build_summary(phases, deltas, findings)
 
-    if config.probes.capture_process_cmdline and any(
-        p.name == "process" for p in probes
-    ):
+    # Only flag the report when redaction actually masked something in a
+    # captured command line - that is when "review before sharing" is
+    # actionable. Command-line capture on its own is documented, not alarming.
+    if config.probes.capture_process_cmdline and _cmdline_secret_was_masked(phases):
         warnings.append(
-            "process: command lines were captured "
-            "(probes.capture_process_cmdline=true). Obvious secrets are masked, "
-            "but review this report before sharing it."
+            "process: a captured command line contained a value that looked like "
+            f"a secret; it was masked ({_REDACT_MASK}). Check the rest of the "
+            "report before sharing it."
         )
 
     metadata = SessionMetadata(

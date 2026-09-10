@@ -156,28 +156,39 @@ async def test_unavailable_probe_is_skipped_not_warned(fast_config, monkeypatch)
     assert any("usbc_pd" in u for u in report.metadata.probes_unavailable)
 
 
-async def test_cmdline_capture_adds_a_review_warning(fast_config, monkeypatch):
+async def test_review_warning_only_when_a_secret_was_masked(fast_config, monkeypatch):
+    from cableprobe.models import KIND_PROCESS
+
+    plain = Observation(
+        kind=KIND_PROCESS, identity="proc:1", label="p", attributes={"cmdline": "sh -c true"}
+    )
+    masked = Observation(
+        kind=KIND_PROCESS,
+        identity="proc:2",
+        label="p",
+        attributes={"cmdline": "app --token ***"},
+    )
+
     class FakeProcess(FakeProbe):
         name = "process"
 
-    fake = FakeProcess(fast_config, 0.0, [[]] * 6)
     monkeypatch.setattr(
-        "cableprobe.session.build_probes", lambda config, session_start: [fake]
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [FakeProcess(fast_config, 0.0, [[plain]] * 6)],
     )
-    assert fast_config.probes.capture_process_cmdline is True
-    report = await run_session(
-        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    r1 = await run_session(fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep)
+    assert r1.metadata.probe_warnings == []  # nothing was masked -> no noise
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [FakeProcess(fast_config, 0.0, [[masked]] * 6)],
     )
-    assert any(
-        "capture_process_cmdline" in w and "review" in w.lower()
-        for w in report.metadata.probe_warnings
-    )
+    r2 = await run_session(fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep)
+    assert any("masked" in w and "sharing" in w for w in r2.metadata.probe_warnings)
 
     fast_config.probes.capture_process_cmdline = False
-    report2 = await run_session(
-        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
-    )
-    assert report2.metadata.probe_warnings == []
+    r3 = await run_session(fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep)
+    assert r3.metadata.probe_warnings == []
 
 
 async def test_run_session_all_probes_unavailable(fast_config, monkeypatch):
