@@ -15,29 +15,7 @@ Each release is also published to
 
 ## [Unreleased]
 
-### Fixed
-
-- `run_command()` no longer returns a clean exit `0` with missing output when a
-  subprocess exceeds its timeout or leaves a descendant holding the stdout pipe
-  open. The child is now started in its own process group and the whole group is
-  `SIGKILL`ed on timeout (reaching descendants the old `proc.kill()` missed); a
-  single deadline covers both execution and pipe draining; the reader threads
-  hand back buffered data incrementally (via `read1`) instead of only at EOF; and
-  a capture that still cannot finish is returned as `-1` with `.truncated` set
-  and whatever was buffered. Reported via a Codex-assisted review.
-- Ephemeral-range TCP listeners (RPC, mDNS, IDE / peer-discovery helpers) that
-  open and close a fresh high port on their own no longer each show up as a
-  `disappeared` / `appeared (transient)` phase difference - and no longer fire
-  `transient-device-during-test` (medium) on a host with nothing plugged in. A
-  *new* ephemeral listener that actually settles into a test / post-test
-  snapshot is still kept, so a service that deliberately binds a fixed port in
-  that range still surfaces. Reported from a real idle-host run.
-- Listener process attribution (`ss -tlnpH`) now matches on the normalised
-  `(family, address, port)`, not the port alone, so two listeners on the same
-  port but different addresses - or on the same port but different address
-  families (`0.0.0.0` vs `[::]`) - no longer both get the first one's process
-  name. The lookup is also an index now (O(listeners + rows)). Reported via a
-  Codex-assisted review.
+## [0.4.6] - 2026-09-10
 
 ### Changed
 
@@ -63,6 +41,27 @@ Each release is also published to
 
 ### Fixed
 
+- `run_command()` no longer returns a clean exit `0` with missing output when a
+  subprocess exceeds its timeout or leaves a descendant holding the stdout pipe
+  open. The child is now started in its own process group and the whole group is
+  `SIGKILL`ed on timeout (reaching descendants the old `proc.kill()` missed); a
+  single deadline covers both execution and pipe draining; the reader threads
+  hand back buffered data incrementally (via `read1`) instead of only at EOF; and
+  a capture that still cannot finish is returned as `-1` with `.truncated` set
+  and whatever was buffered. Reported via a Codex-assisted review.
+- Ephemeral-range TCP listeners (RPC, mDNS, IDE / peer-discovery helpers) that
+  open and close a fresh high port on their own no longer each show up as a
+  `disappeared` / `appeared (transient)` phase difference - and no longer fire
+  `transient-device-during-test` (medium) on a host with nothing plugged in. A
+  *new* ephemeral listener that actually settles into a test / post-test
+  snapshot is still kept, so a service that deliberately binds a fixed port in
+  that range still surfaces. Reported from a real idle-host run.
+- Listener process attribution (`ss -tlnpH`) now matches on the normalised
+  `(family, address, port)`, not the port alone, so two listeners on the same
+  port but different addresses - or on the same port but different address
+  families (`0.0.0.0` vs `[::]`) - no longer both get the first one's process
+  name. The lookup is also an index now (O(listeners + rows)). Reported via a
+  Codex-assisted review.
 - `keystroke_cadence` keeps each device instance's timing separate when a
   `/dev/input/eventN` node is disconnected and reopened (even reusing the same
   device number), instead of appending the new device's presses to the old
@@ -694,7 +693,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/rosscooney/CableProbe/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/rosscooney/CableProbe/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/rosscooney/CableProbe/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/rosscooney/CableProbe/compare/v0.4.2...v0.4.3
