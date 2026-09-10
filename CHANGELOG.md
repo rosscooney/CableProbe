@@ -15,6 +15,8 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-09-10
+
 ### Added
 
 - The `power` probe now records a **current waveform**, not just an
@@ -718,7 +720,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/rosscooney/CableProbe/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/rosscooney/CableProbe/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/rosscooney/CableProbe/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/rosscooney/CableProbe/compare/v0.4.3...v0.4.4
