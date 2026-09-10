@@ -20,7 +20,7 @@ from cableprobe.probes.base import Probe, ProbeAvailability, udev_context
 
 try:  # pragma: no cover - platform dependent
     import pyudev
-except Exception:  # noqa: BLE001
+except ImportError:
     pyudev = None  # type: ignore[assignment]
 
 log = get_logger("probe.input")
@@ -135,7 +135,8 @@ def _usb_parent_key(device) -> str | None:
 
     try:
         parent = device.find_parent("usb", "usb_device")
-    except Exception:  # noqa: BLE001  # pragma: no cover - pyudev quirks
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover - pyudev quirks
+        log.debug("find_parent(usb) failed for %s: %s", device, exc)
         parent = None
     return parent.sys_name if parent is not None else None
 

@@ -13,7 +13,7 @@ from typing import Any
 
 try:  # psutil is a hard dependency, but keep this resilient
     import psutil
-except Exception:  # pragma: no cover - defensive
+except ImportError:  # pragma: no cover
     psutil = None  # type: ignore[assignment]
 
 
@@ -55,11 +55,11 @@ def collect_host_info() -> dict[str, Any]:
     if psutil is not None:
         try:
             info["boot_time"] = psutil.boot_time()
-        except Exception:  # pragma: no cover - platform dependent
+        except (OSError, RuntimeError, NotImplementedError):  # pragma: no cover
             pass
         try:
             info["cpu_count"] = psutil.cpu_count()
-        except Exception:  # pragma: no cover
+        except (OSError, RuntimeError, NotImplementedError):  # pragma: no cover
             pass
 
     return info

@@ -32,7 +32,7 @@ from cableprobe.probes.base import Probe, ProbeAvailability
 
 try:  # optional dependency
     from smbus2 import SMBus
-except Exception:  # noqa: BLE001
+except ImportError:
     SMBus = None  # type: ignore[assignment,misc]
 
 log = get_logger("probe.power")
@@ -103,7 +103,7 @@ class PowerProbe(Probe):
             )
         try:
             self._read()
-        except Exception as exc:  # noqa: BLE001
+        except OSError as exc:  # bus present but nothing ACKs at this address
             return ProbeAvailability(
                 ok=False,
                 detail=f"no INA219 responding at 0x{self._address:02x} on i2c-{self._bus_no} ({exc})",

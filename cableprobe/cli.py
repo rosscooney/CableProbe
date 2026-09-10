@@ -610,7 +610,7 @@ def _is_editable_install() -> bool:
         raw = distribution("cableprobe").read_text("direct_url.json")
         if raw:
             return bool(json.loads(raw).get("dir_info", {}).get("editable"))
-    except Exception:  # noqa: BLE001 - metadata may be absent / malformed
+    except (ImportError, OSError, ValueError):  # metadata absent / malformed
         pass
     return False
 

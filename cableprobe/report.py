@@ -19,7 +19,7 @@ try:  # rich ships with Typer, but keep rendering optional
     from rich.table import Table
 
     _RICH = True
-except Exception:  # pragma: no cover - defensive
+except ImportError:  # pragma: no cover
     _RICH = False
 
     def _rich_escape(value: str) -> str:  # type: ignore[misc]

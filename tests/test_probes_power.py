@@ -75,3 +75,15 @@ def test_power_probe_unavailable_without_smbus(monkeypatch):
     monkeypatch.setattr(power_mod, "SMBus", None)
     a = PowerProbe(Config(), 0.0).availability()
     assert a.ok is False and "smbus2" in a.detail
+
+
+def test_power_probe_unavailable_when_bus_read_errors(monkeypatch, tmp_path):
+    monkeypatch.setattr(power_mod, "SMBus", object)  # not None
+    monkeypatch.setattr(power_mod.Path, "exists", lambda self: True)
+
+    def _boom(self):
+        raise OSError(121, "Remote I/O error")
+
+    monkeypatch.setattr(power_mod.PowerProbe, "_read", _boom)
+    a = PowerProbe(Config(), 0.0).availability()
+    assert a.ok is False and "no INA219 responding" in a.detail

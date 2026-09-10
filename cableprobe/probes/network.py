@@ -17,7 +17,7 @@ from cableprobe.models import KIND_NETWORK_INTERFACE, Observation
 
 try:
     import psutil
-except Exception:  # pragma: no cover - defensive
+except ImportError:  # pragma: no cover
     psutil = None  # type: ignore[assignment]
 
 from cableprobe.probes.base import Probe, ProbeAvailability

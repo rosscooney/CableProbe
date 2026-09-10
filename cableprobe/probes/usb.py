@@ -23,7 +23,7 @@ from cableprobe.probes.base import (
 
 try:  # pragma: no cover - platform dependent
     import pyudev
-except Exception:  # noqa: BLE001
+except ImportError:
     pyudev = None  # type: ignore[assignment]
 
 log = get_logger("probe.usb")

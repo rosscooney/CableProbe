@@ -30,6 +30,15 @@ Each release is also published to
   symlink it onto root's `PATH` — if the launcher or its directory is
   group-/world-writable, so a poisoned `PATH` entry can't ride the escalation.
 
+### Internal
+
+- Tightened exception handling: every optional-import guard now catches
+  `ImportError` rather than bare `Exception`, and several best-effort blocks
+  (`power` availability probe, host-info collection, editable-install
+  detection) were narrowed to the exceptions they actually expect. The
+  remaining broad handlers are the probe-isolation boundary and CLI
+  command-error reporting, which all log or surface what they caught.
+
 ## [0.4.2] - 2026-09-10
 
 ### Changed

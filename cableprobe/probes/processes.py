@@ -26,7 +26,7 @@ from cableprobe.redact import redact_cmdline
 
 try:
     import psutil
-except Exception:  # pragma: no cover - defensive
+except ImportError:  # pragma: no cover
     psutil = None  # type: ignore[assignment]
 
 from cableprobe.probes.base import Probe, ProbeAvailability

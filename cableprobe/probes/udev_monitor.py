@@ -34,7 +34,7 @@ from cableprobe.probes.base import Probe, ProbeAvailability, udev_context
 
 try:  # pragma: no cover - platform dependent
     import pyudev
-except Exception:  # noqa: BLE001
+except ImportError:
     pyudev = None  # type: ignore[assignment]
 
 log = get_logger("probe.udev")
