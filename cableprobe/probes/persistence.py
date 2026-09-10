@@ -46,18 +46,20 @@ _HOME_ROOTS = ("/root", "/home")
 #: one is a mistake or an attempt to make the scan expensive.
 _MAX_HASH_BYTES = 8 * 1024 * 1024
 
-_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
 
 def _fingerprint(path: Path) -> dict:
     """Hash ``path`` safely.
 
-    Opens with ``O_NOFOLLOW | O_NONBLOCK`` (a symlink or a FIFO can't make us
-    block or follow it elsewhere), rejects anything that is not a regular file,
-    and hashes at most :data:`_MAX_HASH_BYTES`. A local user who plants a FIFO
-    or a symlink to ``/dev/zero`` at a discovered ``authorized_keys`` path can
-    no longer hang or OOM the session.
+    Opens with ``O_NONBLOCK`` and hashes only if the opened descriptor is a
+    regular file - so a FIFO or a ``/dev/zero`` symlink planted at a discovered
+    ``authorized_keys`` path cannot hang or OOM the session. Symlinks *are*
+    followed (a legitimate persistence target may be one), and where the target
+    is reached its path is recorded, so a change of link target is itself
+    visible. ``hash_truncated`` (past :data:`_MAX_HASH_BYTES`) and a non-regular
+    or unreadable ``present`` target are the "we could not fully see this"
+    signals - :func:`~cableprobe.session.run_session` folds them into coverage.
     """
 
     info: dict = {
@@ -66,10 +68,24 @@ def _fingerprint(path: Path) -> dict:
         "present": False,
         "regular_file": None,
         "hash_truncated": False,
+        "symlink_target": None,
     }
     try:
-        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK)
+        if os.path.islink(path):
+            try:
+                info["symlink_target"] = os.readlink(path)
+            except OSError:
+                pass
     except OSError:
+        pass
+
+    try:
+        fd = os.open(path, os.O_RDONLY | _O_NONBLOCK)
+    except OSError:
+        # a broken symlink still "exists" as a link
+        info["present"] = info["symlink_target"] is not None
+        if info["present"]:
+            info["regular_file"] = False
         return info
     try:
         st = os.fstat(fd)
@@ -146,6 +162,12 @@ def scan_persistence(
                     "present": fp["present"],
                     "regular_file": fp["regular_file"],
                     "hash_truncated": fp["hash_truncated"],
+                    "symlink_target": fp["symlink_target"],
+                    # true when the item exists but we could not fully hash it
+                    "fingerprint_incomplete": bool(
+                        fp["present"]
+                        and (fp["sha256"] is None or fp["hash_truncated"])
+                    ),
                 },
             )
         )

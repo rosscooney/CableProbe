@@ -152,17 +152,41 @@ def test_scan_persistence_caps_a_huge_file(tmp_path, monkeypatch):
     big.write_bytes(b"x" * 4096)
     (item,) = scan_persistence(targets=[("hosts", str(big))], home_roots=())
     assert item.attributes["hash_truncated"] is True
+    assert item.attributes["fingerprint_incomplete"] is True
     assert len(item.attributes["sha256"]) == 64  # still a valid digest (of the prefix)
 
 
-def test_scan_persistence_will_not_follow_a_symlink(tmp_path):
-    secret = tmp_path / "secret"
-    secret.write_text("PRIVATE KEY")
+def test_scan_persistence_monitors_a_symlinked_regular_target(tmp_path):
+    real = tmp_path / "real_keys"
+    real.write_text("ssh-ed25519 AAAA...\n")
     link = tmp_path / "authorized_keys"
-    link.symlink_to(secret)
+    link.symlink_to(real)
     (item,) = scan_persistence(targets=[("keys", str(link))], home_roots=())
-    assert item.attributes["sha256"] is None  # O_NOFOLLOW refused it
-    assert item.attributes["present"] is False
+    assert item.attributes["present"] is True
+    assert item.attributes["regular_file"] is True
+    assert item.attributes["symlink_target"] == str(real)
+    before = item.attributes["sha256"]
+    assert before and len(before) == 64
+
+    real.write_text("ssh-ed25519 EVIL...\n")  # target rewritten -> the hash moves
+    (item2,) = scan_persistence(targets=[("keys", str(link))], home_roots=())
+    assert item2.attributes["sha256"] != before
+
+
+def test_scan_persistence_does_not_hang_on_a_symlink_to_a_fifo(tmp_path):
+    import os
+
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    home = tmp_path / "u"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "authorized_keys").symlink_to(fifo)
+
+    out = scan_persistence(targets=[], home_roots=(str(tmp_path),))
+    item = next(o for o in out if o.identity.endswith("authorized_keys"))
+    assert item.attributes["regular_file"] is False
+    assert item.attributes["sha256"] is None
+    assert item.attributes["fingerprint_incomplete"] is True
 
 
 # --------------------------------------------------------------------------

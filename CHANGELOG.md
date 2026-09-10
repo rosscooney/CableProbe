@@ -15,6 +15,16 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- The `persistence` probe no longer treats a symlinked target as absent (0.4.4
+  over-corrected). Symlinks are now followed to a regular file - opened
+  `O_NONBLOCK` and hashed only if `fstat` says regular, so a FIFO / `/dev/zero`
+  target still can't hang or OOM the scan - and the link target is recorded, so
+  a change of *where* it points is itself a signal. A truncated or unreadable
+  target sets `fingerprint_incomplete`, which now counts toward incomplete
+  coverage. Reported via a Codex-assisted review.
+
 ## [0.4.4] - 2026-09-10
 
 ### Changed
