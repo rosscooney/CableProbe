@@ -128,6 +128,9 @@ class PhaseObservation(BaseModel):
     start_snapshot: SystemSnapshot
     end_snapshot: SystemSnapshot
     events: list[ProbeEvent] = Field(default_factory=list)
+    #: Events discarded this phase because the per-phase budget was hit (an
+    #: event storm). A non-zero value means ``events`` is incomplete.
+    events_dropped: int = 0
 
 
 class AttributeChange(BaseModel):

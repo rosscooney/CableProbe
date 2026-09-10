@@ -36,6 +36,11 @@ Each release is also published to
 
 ### Fixed
 
+- Per-phase event collection is now capped (`_MAX_PHASE_EVENTS`, 10 000). An
+  event storm (rapid re-plug, a chatty gadget) can no longer grow the report
+  without bound; events past the budget are counted in
+  `PhaseObservation.events_dropped` / `summary.events_dropped` and flagged in
+  the summary. Reported via a Codex-assisted review.
 - The `keystroke_cadence` reader no longer busy-loops (100% CPU) when an input
   device disconnects mid-session: a failed read or EOF now closes and drops the
   descriptor, a wedged device is quarantined for 5 s before any retry, and open

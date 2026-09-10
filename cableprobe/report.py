@@ -178,6 +178,13 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
         for name, detail in sorted(meta.probe_snapshot_errors.items()):
             console.print(f"  [red]- {_rich_escape(name)}: {_rich_escape(str(detail))}[/red]")
 
+    dropped = int(report.summary.get("events_dropped") or 0)
+    if dropped:
+        console.print(
+            f"[yellow]⚠ Event storm: {dropped} event(s) dropped past the per-phase "
+            "budget — the event list is incomplete[/yellow]"
+        )
+
     _render_delta_table(console, report.deltas)
     _render_findings(console, report.findings)
     _render_advice(console, report)
@@ -283,6 +290,11 @@ def _plain_summary(report: SessionReport) -> list[str]:
         )
         for name, detail in sorted(meta.probe_snapshot_errors.items()):
             lines.append(f"       - {name}: {detail}")
+    dropped = int(report.summary.get("events_dropped") or 0)
+    if dropped:
+        lines.append(
+            f"  !! EVENT STORM: {dropped} event(s) dropped past the per-phase budget"
+        )
 
     lines.append("")
     lines.append(f"Phase differences: {len(report.deltas)}")

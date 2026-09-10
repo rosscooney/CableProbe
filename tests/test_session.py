@@ -70,6 +70,28 @@ async def test_observe_phase_keeps_lead_in_events(fast_config):
     assert [e.identity for e in result.events] == ["usb:x"]
 
 
+async def test_observe_phase_caps_an_event_storm(fast_config, monkeypatch):
+    from cableprobe.session import _observe_phase
+    from tests.conftest import event as _event
+
+    monkeypatch.setattr("cableprobe.session._MAX_PHASE_EVENTS", 50)
+
+    class Flood(Probe):
+        name = "flood"
+
+        def snapshot(self):
+            return []
+
+        def drain_events(self):
+            return [_event("add", "usb_device", f"usb:{i}", "x") for i in range(200)]
+
+    result = await _observe_phase(
+        [Flood(fast_config, 0.0)], "test", 1.0, 1.0, sleep=_noop_sleep
+    )
+    assert len(result.events) == 50
+    assert result.events_dropped >= 150
+
+
 async def test_run_session_detects_cable_correlated_device(fast_config, monkeypatch):
     kb = Observation(
         kind=KIND_INPUT_DEVICE,

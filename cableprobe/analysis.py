@@ -295,6 +295,7 @@ def build_summary(
             name: len(p.end_snapshot.observations) for name, p in phases.items()
         },
         "phase_event_counts": {name: len(p.events) for name, p in phases.items()},
+        "events_dropped": sum(p.events_dropped for p in phases.values()),
         "snapshot_error_count": snapshot_error_count,
         "coverage": "partial" if snapshot_error_count else "full",
         "delta_count": len(deltas),

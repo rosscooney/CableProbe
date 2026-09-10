@@ -114,6 +114,11 @@ def _safe_snapshot(probe: Probe) -> tuple[list[Observation], list[str]]:
 #: file read, a stuck tool - and the phase must not wait on it forever.
 _SNAPSHOT_TIMEOUT = 45.0
 
+#: Per-phase event budget. A normal session sees well under a hundred events; a
+#: flood past this is an event storm (rapid re-plug, a chatty gadget) and the
+#: rest are counted, not kept, so one session can't produce an unbounded report.
+_MAX_PHASE_EVENTS = 10_000
+
 
 async def _snapshot_one(probe: Probe) -> tuple[list[Observation], list[str]]:
     try:
@@ -162,10 +167,22 @@ async def _observe_phase(
 ) -> PhaseObservation:
     started_at = utcnow()
     start_snapshot = await _capture(probes)
+
+    events: list[ProbeEvent] = []
+    dropped = 0
+
+    def _collect(new: list[ProbeEvent]) -> None:
+        nonlocal dropped
+        room = _MAX_PHASE_EVENTS - len(events)
+        if room > 0:
+            events.extend(new[:room])
+        if len(new) > max(room, 0):
+            dropped += len(new) - max(room, 0)
+
     # Events queued during the lead-in - the operator prompt, the plug/unplug
     # action itself, the start-snapshot capture - are this phase's opening
     # moments. Keep them (they used to be discarded, losing the connect uevent).
-    events: list[ProbeEvent] = _drain(probes)
+    _collect(_drain(probes))
 
     elapsed = 0.0
     while elapsed < duration:
@@ -176,12 +193,20 @@ async def _observe_phase(
         # progress display. Snapshots are only captured at the phase boundaries;
         # intra-phase sampling is not consumed by analyse() yet (see issue #1:
         # in-phase transient detection).
-        events.extend(_drain(probes))
+        _collect(_drain(probes))
         if on_tick is not None:
             on_tick(phase, elapsed, duration)
 
     end_snapshot = await _capture(probes)
-    events.extend(_drain(probes))
+    _collect(_drain(probes))
+
+    if dropped:
+        log.warning(
+            "phase %s: event budget (%d) exceeded, dropped %d event(s)",
+            phase,
+            _MAX_PHASE_EVENTS,
+            dropped,
+        )
 
     return PhaseObservation(
         phase=phase,
@@ -190,6 +215,7 @@ async def _observe_phase(
         start_snapshot=start_snapshot,
         end_snapshot=end_snapshot,
         events=events,
+        events_dropped=dropped,
     )
 
 
