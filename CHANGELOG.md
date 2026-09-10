@@ -15,6 +15,18 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- Persistence findings now cover deletion and post-test timing, which the
+  single `persistence-point-changed-on-connect` rule (test phase, appeared /
+  modified only) missed. New default rules:
+  `persistence-point-changed-during-session` (test **or** post-test),
+  `persistence-point-removed-during-session` (a monitored file deleted), and
+  `persistence-item-became-unreadable` (a file that turned into a symlink /
+  FIFO mid-session). Wording makes clear CableProbe observed the timing, not
+  that the cable caused it. Plus a plain-language "reboot persistence" advice
+  theme. Reported via a Codex-assisted review.
+
 ### Changed
 
 - `analyse()` now compares the phase *start* snapshots too, not only the end

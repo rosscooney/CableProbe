@@ -406,19 +406,48 @@ rules:
 
   # --- persistence surface (persistence probe) --------------------------
 
-  - id: persistence-point-changed-on-connect
-    title: A boot / device-event / login file changed while the cable was connected
+  - id: persistence-point-changed-during-session
+    title: A boot / device-event / login file changed during the session
     severity: critical
     rationale: >
       A file that controls what runs at boot, on a udev event, or at login -
       a systemd unit, a udev rule, cron, rc.local, ld.so.preload,
-      authorized_keys, /etc/hosts - changed during the session. This is how a
-      payload survives a reboot. Treat the host as compromised until you have
-      reviewed the change.
+      authorized_keys, /etc/hosts - appeared or had its contents change while
+      CableProbe was watching (during the test phase OR after the cable was
+      unplugged). This is how a payload survives a reboot. CableProbe cannot
+      prove the cable caused it, but the timing is the concern - treat the host
+      as compromised until you have reviewed the change.
     match:
       change: [appeared, modified]
-      first_seen_phase: test
+      first_seen_phase: [test, post_test]
       kind: persistence_item
+
+  - id: persistence-point-removed-during-session
+    title: A boot / device-event / login file was deleted during the session
+    severity: critical
+    rationale: >
+      A file CableProbe was fingerprinting for changes - a udev rule, a systemd
+      unit, ld.so.preload, authorized_keys, /etc/hosts - disappeared while the
+      session was running. Removing a security-relevant file (a hardening udev
+      rule, an allow/deny list) is as much an attack as adding one. Review what
+      was removed and why.
+    match:
+      change: disappeared
+      kind: persistence_item
+
+  - id: persistence-item-became-unreadable
+    title: A persistence file changed into something CableProbe can no longer fingerprint
+    severity: high
+    rationale: >
+      A monitored persistence file turned into a symlink, a FIFO, or otherwise
+      stopped being a plain readable file during the session. That defeats
+      change detection for it and is not a normal thing for these paths to do.
+    match:
+      change: modified
+      kind: persistence_item
+      attributes:
+        all:
+          - { key: fingerprint_incomplete, equals: "True" }
 
   # --- outbound connections (connections probe, off by default) --------------------------
 

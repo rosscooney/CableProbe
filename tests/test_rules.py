@@ -124,6 +124,29 @@ def test_persisted_process_not_flagged_as_device():
     assert not any(f.rule_id == "usb-device-did-not-revert" for f in findings)
 
 
+def test_persistence_rules_cover_post_test_deletion_and_unreadable():
+    rs = RuleSet.default()
+
+    def _ids(delta):
+        return {f.rule_id for f in rs.evaluate([delta])}
+
+    # modified only in post-test (after disconnect)
+    assert "persistence-point-changed-during-session" in _ids(
+        _delta("persistence_item", "persist:/etc/ld.so.preload",
+               change="modified", first_seen_phase="post_test")
+    )
+    # deleted during the session (disappeared -> first_seen_phase None)
+    assert "persistence-point-removed-during-session" in _ids(
+        _delta("persistence_item", "persist:/etc/udev/rules.d/10-x.rules",
+               change="disappeared", first_seen_phase=None)
+    )
+    # turned into a symlink / FIFO mid-session
+    assert "persistence-item-became-unreadable" in _ids(
+        _delta("persistence_item", "persist:/root/.ssh/authorized_keys",
+               change="modified", fingerprint_incomplete=True)
+    )
+
+
 def test_no_findings_for_baseline_only_change():
     rs = RuleSet.default()
     delta = _delta(KIND_USB_DEVICE, "usb:1:2", change="disappeared", first_seen_phase=None)

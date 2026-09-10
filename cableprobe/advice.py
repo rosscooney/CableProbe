@@ -62,6 +62,17 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
         "add a network adapter at all.",
     ),
     (
+        "reboot-persistence",
+        ("persistence-point-changed", "persistence-point-removed",
+         "persistence-item-became-unreadable"),
+        "A file that controls what your computer runs at boot, on a device "
+        "event, or at login (a startup service, a udev rule, cron, "
+        "authorized_keys, /etc/hosts) changed or was removed while CableProbe "
+        "was watching. This is how something makes itself survive a reboot. "
+        "CableProbe can't prove the cable did it, but review that exact change "
+        "before you trust this machine again.",
+    ),
+    (
         "storage",
         ("mass-storage", "storage-interface", "removable-media-mounted", "mount-persisted"),
         "The cable presented a USB drive to the computer. That storage could "
