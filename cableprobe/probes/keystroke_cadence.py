@@ -135,6 +135,20 @@ def summarise_cadence(timestamps: list[float]) -> dict:
     return summary
 
 
+def _can_read_input() -> bool:
+    """True if this process could read a ``/dev/input/event*`` node that appears
+    later - root, or a member of the ``input`` group (nodes are ``root:input``)."""
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return True
+    try:
+        import grp
+
+        return grp.getgrnam("input").gr_gid in os.getgroups()
+    except (KeyError, ImportError, OSError):  # pragma: no cover - non-POSIX / no group
+        return False
+
+
 def _device_name(event_name: str, sys_root: str = SYS_CLASS_INPUT) -> str:
     try:
         return (
@@ -163,14 +177,29 @@ class KeystrokeCadenceProbe(Probe):
             return ProbeAvailability(
                 ok=False, detail="disabled (probes.capture_keystroke_timing = false)"
             )
+        if not os.path.isdir("/dev/input"):
+            return ProbeAvailability(ok=False, detail="/dev/input not present")
+
         nodes = glob.glob(DEV_INPUT_GLOB)
-        if not nodes:
-            return ProbeAvailability(ok=False, detail="no /dev/input/event* nodes")
-        if not any(os.access(node, os.R_OK) for node in nodes):
+        readable = [n for n in nodes if os.access(n, os.R_OK)]
+        if nodes and not readable and not _can_read_input():
             return ProbeAvailability(
-                ok=False, detail="/dev/input/event* not readable (needs root / input group)"
+                ok=False,
+                detail="/dev/input/event* not readable (needs root / input group)",
             )
-        return ProbeAvailability(ok=True, detail=f"{len(nodes)} input node(s)")
+        if not nodes:
+            # a headless test Pi has no input devices at startup; keep the probe
+            # running so it catches a keyboard the unknown cable introduces
+            if _can_read_input():
+                return ProbeAvailability(
+                    ok=True, detail="no input devices yet - watching for one"
+                )
+            return ProbeAvailability(
+                ok=False,
+                detail="no input devices, and no permission to read one if it appears "
+                "(needs root / input group)",
+            )
+        return ProbeAvailability(ok=True, detail=f"{len(readable) or len(nodes)} input node(s)")
 
     async def start(self) -> None:
         if not self._enabled:

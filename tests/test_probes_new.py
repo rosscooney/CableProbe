@@ -1122,6 +1122,21 @@ def test_probe_modules_use_the_shared_read_sysfs():
         assert not hasattr(mod, "_read_text")
 
 
+def test_keystroke_probe_watches_a_headless_host_with_no_input_devices(monkeypatch):
+    from cableprobe.probes import keystroke_cadence as ks
+
+    monkeypatch.setattr(ks.os.path, "isdir", lambda p: p == "/dev/input")
+    monkeypatch.setattr(ks.glob, "glob", lambda _pat: [])  # no event nodes yet
+    monkeypatch.setattr(ks, "_can_read_input", lambda: True)  # root / input group
+
+    a = ks.KeystrokeCadenceProbe(_CFG, 0.0).availability()
+    assert a.ok is True and "watching" in a.detail
+
+    monkeypatch.setattr(ks, "_can_read_input", lambda: False)
+    a2 = ks.KeystrokeCadenceProbe(_CFG, 0.0).availability()
+    assert a2.ok is False  # honestly unavailable: can't read a future node
+
+
 def test_keystroke_probe_disabled_by_config():
     cfg = Config.model_validate({"probes": {"capture_keystroke_timing": False}})
     from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe

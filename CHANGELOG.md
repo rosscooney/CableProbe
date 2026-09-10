@@ -25,6 +25,12 @@ Each release is also published to
 
 ### Fixed
 
+- The `keystroke_cadence` probe no longer marks itself permanently unavailable
+  on a host with **no input devices at startup** (a headless test Pi). If the
+  process could read a `/dev/input/event*` node that appears later (root, or the
+  `input` group), the probe now starts and watches for one - so a keyboard the
+  unknown cable introduces still gets its typing measured. Reported via a
+  Codex-assisted review.
 - A detection rule (or a custom known-implant entry) with a misspelled
   `severity` is now rejected at load time. Previously an unknown value like
   `critcal` fell through severity ranking and the exit code, so an intended
