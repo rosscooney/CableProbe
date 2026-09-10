@@ -68,14 +68,11 @@ def _safe_snapshot(probe: Probe) -> tuple[list[Observation], list[str]]:
         return [], [f"{probe.name}: {exc}"]
 
 
-async def _capture(probes: list[Probe], *, periodic: bool = False) -> SystemSnapshot:
-    selected = [
-        p for p in probes if not periodic or getattr(p, "samples_periodically", True)
-    ]
+async def _capture(probes: list[Probe]) -> SystemSnapshot:
     # Probe snapshots block on subprocesses / sysfs; run them off the event loop
     # so enabled probes are actually captured concurrently.
     results = await asyncio.gather(
-        *(asyncio.to_thread(_safe_snapshot, p) for p in selected)
+        *(asyncio.to_thread(_safe_snapshot, p) for p in probes)
     )
     observations: list[Observation] = []
     errors: list[str] = []
@@ -109,13 +106,15 @@ async def _observe_phase(
     _drain(probes)  # reset: events from here on belong to this phase
 
     events: list[ProbeEvent] = []
-    samples: list[SystemSnapshot] = []
     elapsed = 0.0
     while elapsed < duration:
         step = min(interval, duration - elapsed)
         await sleep(step)
         elapsed += step
-        samples.append(await _capture(probes, periodic=True))
+        # Drain any events probes queued during this interval, and advance the
+        # progress display. Snapshots are only captured at the phase boundaries;
+        # intra-phase sampling is not consumed by analyse() yet (see issue #1:
+        # in-phase transient detection).
         events.extend(_drain(probes))
         if on_tick is not None:
             on_tick(phase, elapsed, duration)
@@ -129,7 +128,6 @@ async def _observe_phase(
         ended_at=utcnow(),
         start_snapshot=start_snapshot,
         end_snapshot=end_snapshot,
-        samples=samples,
         events=events,
     )
 

@@ -66,11 +66,6 @@ class Probe(abc.ABC):
 
     # -- data -----------------------------------------------------------
 
-    #: If False, this probe is skipped for periodic in-phase samples and only
-    #: read at each phase's start/end snapshot (use for cumulative/expensive
-    #: probes such as the kernel log).
-    samples_periodically: bool = True
-
     @abc.abstractmethod
     def snapshot(self) -> list[Observation]:
         """Return the current point-in-time observations.

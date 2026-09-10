@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- Reports no longer carry per-tick `samples` (the full observation set captured
+  on every in-phase poll). They were serialised into every report but never
+  consumed by `analyse()`, which only diffs phase boundaries — so this trims
+  report size, often substantially on longer sessions, with no change to
+  findings. Intra-phase transient detection is tracked in issue #1.
+
 ### Packaging
 
 - The source distribution now bundles `NOTICE.md`, `CONTRIBUTING.md`,

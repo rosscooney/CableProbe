@@ -121,7 +121,6 @@ def scan_persistence(
 class PersistenceProbe(Probe):
     name = "persistence"
     description = "Fingerprints boot / device-event / login persistence points"
-    samples_periodically = False
 
     def availability(self) -> ProbeAvailability:
         if Path("/etc").is_dir():

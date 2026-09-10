@@ -273,7 +273,6 @@ class UsbDescriptorProbe(Probe):
     description = "Per-interface USB descriptor inventory from sysfs (class/driver/endpoints)"
     # Descriptor set is captured at each phase boundary; a mid-phase change still
     # lands in the end snapshot and is corroborated by udev events.
-    samples_periodically = False
 
     def availability(self) -> ProbeAvailability:
         if Path(SYS_BUS_USB_DEVICES).is_dir():
@@ -339,7 +338,6 @@ def topology_observations(devices: list[dict]) -> list[Observation]:
 class UsbTopologyProbe(Probe):
     name = "usb_topology"
     description = "USB hub / port tree summary and per-hub inventory from sysfs"
-    samples_periodically = False
 
     def availability(self) -> ProbeAvailability:
         if Path(SYS_BUS_USB_DEVICES).is_dir():

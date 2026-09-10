@@ -159,7 +159,6 @@ def scan_hid_reports(root: str = SYS_BUS_HID_DEVICES) -> list[Observation]:
 class HidReportProbe(Probe):
     name = "hid_report"
     description = "Parses HID report descriptors - catches injection capability the class hides"
-    samples_periodically = False
 
     def availability(self) -> ProbeAvailability:
         if Path(SYS_BUS_HID_DEVICES).is_dir():

@@ -204,7 +204,6 @@ class WifiScanProbe(Probe):
     name = "wifi_scan"
     description = "Wi-Fi access points in range (a cable implant may run its own AP)"
     # An active scan disrupts the Wi-Fi association; only run it at phase edges.
-    samples_periodically = False
 
     def __init__(self, config, session_start: float) -> None:
         super().__init__(config, session_start)

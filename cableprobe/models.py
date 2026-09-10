@@ -127,7 +127,6 @@ class PhaseObservation(BaseModel):
     ended_at: datetime
     start_snapshot: SystemSnapshot
     end_snapshot: SystemSnapshot
-    samples: list[SystemSnapshot] = Field(default_factory=list)
     events: list[ProbeEvent] = Field(default_factory=list)
 
 

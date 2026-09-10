@@ -51,7 +51,6 @@ def phase(
         ended_at=ended,
         start_snapshot=snapshot(start_obs, at=started),
         end_snapshot=snapshot(end_obs if end_obs is not None else start_obs, at=ended),
-        samples=[],
         events=events or [],
     )
 

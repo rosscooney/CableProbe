@@ -279,7 +279,7 @@ def run(
     baseline: Optional[int] = typer.Option(None, help="Baseline phase duration (seconds)."),
     test: Optional[int] = typer.Option(None, help="Test phase duration (seconds)."),
     post_test: Optional[int] = typer.Option(None, "--post-test", help="Post-test duration (seconds)."),
-    interval: Optional[float] = typer.Option(None, help="Sampling interval (seconds)."),
+    interval: Optional[float] = typer.Option(None, help="Event-poll / progress-refresh interval (seconds)."),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config file."),
     rules: Optional[Path] = typer.Option(None, "--rules", "-r", help="YAML rules file (default: built-in)."),
     output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Where to write the report."),
@@ -337,7 +337,7 @@ def run(
     typer.echo(
         f"phases: baseline={cfg.session.baseline_seconds}s "
         f"test={cfg.session.test_seconds}s post-test={cfg.session.post_test_seconds}s "
-        f"(sample every {cfg.session.sample_interval_seconds}s)"
+        f"(poll every {cfg.session.sample_interval_seconds}s)"
     )
 
     _advise_root("run", interactive=cfg.session.interactive)

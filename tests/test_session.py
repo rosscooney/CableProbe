@@ -52,9 +52,9 @@ async def test_run_session_detects_cable_correlated_device(fast_config, monkeypa
         label="Evil Keyboard",
         attributes={"ID_INPUT_KEYBOARD": "1"},
     )
-    # _observe_phase takes 3 snapshots per phase (start, one tick, end):
+    # _observe_phase takes 2 snapshots per phase (start, end):
     # baseline -> [], test -> [kb], post -> []
-    script = [[]] * 3 + [[kb]] * 3 + [[]] * 3
+    script = [[]] * 2 + [[kb]] * 2 + [[]] * 2
     fake = FakeProbe(fast_config, 0.0, script)
 
     monkeypatch.setattr(
@@ -92,7 +92,7 @@ async def test_run_session_applies_implants_and_allowlist(fast_config, monkeypat
         label="Digispark",
         attributes={"vendor_id": "16d0", "product_id": "0753", "serial": "X1"},
     )
-    fake = FakeProbe(fast_config, 0.0, [[]] * 3 + [[implant]] * 3 + [[]] * 3)
+    fake = FakeProbe(fast_config, 0.0, [[]] * 2 + [[implant]] * 2 + [[]] * 2)
     monkeypatch.setattr(
         "cableprobe.session.build_probes", lambda config, session_start: [fake]
     )
@@ -106,7 +106,7 @@ async def test_run_session_applies_implants_and_allowlist(fast_config, monkeypat
     # now allowlist that exact device -> the implant finding is downgraded
     al = Allowlist([], None)
     al.add("16d0", "0753", "X1", "my dev board")
-    fake2 = FakeProbe(fast_config, 0.0, [[]] * 3 + [[implant]] * 3 + [[]] * 3)
+    fake2 = FakeProbe(fast_config, 0.0, [[]] * 2 + [[implant]] * 2 + [[]] * 2)
     monkeypatch.setattr(
         "cableprobe.session.build_probes", lambda config, session_start: [fake2]
     )
@@ -133,7 +133,7 @@ async def test_run_session_requires_probes(fast_config, monkeypatch):
 
 async def test_unavailable_probe_is_skipped_not_warned(fast_config, monkeypatch):
     kb = Observation(kind=KIND_INPUT_DEVICE, identity="input:x", label="kb")
-    working = FakeProbe(fast_config, 0.0, [[]] * 3 + [[kb]] * 3 + [[]] * 3)
+    working = FakeProbe(fast_config, 0.0, [[]] * 2 + [[kb]] * 2 + [[]] * 2)
 
     class NoTypeC(Probe):
         name = "usbc_pd"
@@ -202,7 +202,7 @@ async def test_new_signals_flow_through_to_findings(fast_config, monkeypatch):
             attributes={"looks_injected": True, "keystrokes": 200},
         ),
     ]
-    script = [[]] * 3 + [list(appeared)] * 3 + [[]] * 3
+    script = [[]] * 2 + [list(appeared)] * 2 + [[]] * 2
     fake = FakeProbe(fast_config, 0.0, script)
     monkeypatch.setattr(
         "cableprobe.session.build_probes", lambda config, session_start: [fake]

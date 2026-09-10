@@ -117,7 +117,6 @@ class KernelLogProbe(Probe):
     description = "USB-relevant kernel log / journal lines emitted during the session"
     # Cumulative since session start and relatively expensive; capturing it on
     # every in-phase tick just re-reads and re-parses the same growing log.
-    samples_periodically = False
 
     def _backend(self) -> str:
         configured = self.config.probes.kernel_log_backend

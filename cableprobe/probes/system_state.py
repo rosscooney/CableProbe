@@ -82,9 +82,7 @@ class KernelModuleProbe(Probe):
     name = "kernel_modules"
     description = "Loaded kernel modules (/proc/modules); catches drivers loaded on connect"
     # ~150 modules on a typical host; a driver loaded because of the cable is
-    # still present in the phase end snapshot (which is what analysis compares),
-    # so there is no need to copy the full list into every periodic sample.
-    samples_periodically = False
+    # still present in the phase end snapshot, which is what analysis compares.
 
     def availability(self) -> ProbeAvailability:
         if Path(PROC_MODULES).exists():
@@ -241,7 +239,6 @@ class PciDeviceProbe(Probe):
     name = "pci"
     description = "PCI and Thunderbolt device inventory (USB4/TBT PCIe-tunnel surface)"
     # PCI enumeration is stable within a phase; boundary snapshots are enough.
-    samples_periodically = False
 
     def availability(self) -> ProbeAvailability:
         if Path(SYS_BUS_PCI).is_dir() or Path(SYS_BUS_THUNDERBOLT).is_dir():

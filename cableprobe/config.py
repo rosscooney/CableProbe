@@ -62,6 +62,8 @@ class SessionConfig(BaseModel):
     baseline_seconds: int = 30
     test_seconds: int = 60
     post_test_seconds: int = 30
+    #: How often, within a phase, to drain queued probe events and refresh the
+    #: progress display. Snapshots themselves are taken only at phase boundaries.
     sample_interval_seconds: float = 2.0
     interactive: bool = True
     auto_advance_grace_seconds: int = 5
