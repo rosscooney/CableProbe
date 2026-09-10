@@ -15,6 +15,13 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Security
+
+- The `persistence` probe now records the full SHA-256 of each boot / udev /
+  login file instead of a 64-bit prefix. Change detection is this probe's whole
+  job, and a truncated digest only needs a 64-bit collision to defeat. The
+  observation attribute is renamed `sha256_16` -> `sha256`.
+
 ## [0.4.2] - 2026-09-10
 
 ### Changed

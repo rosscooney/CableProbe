@@ -111,17 +111,18 @@ def test_scan_persistence_hashes_targets(tmp_path):
     assert f"persist:{rules / '99-evil.rules'}" in ids
     item = next(o for o in out if o.identity.endswith("99-evil.rules"))
     assert item.kind == KIND_PERSISTENCE_ITEM
-    assert item.attributes["sha256_16"] and item.attributes["present"] is True
+    digest = item.attributes["sha256"]
+    assert len(digest) == 64 and item.attributes["present"] is True  # full sha256
 
     # a byte change moves the hash -> a delta later
-    before = item.attributes["sha256_16"]
+    before = item.attributes["sha256"]
     (rules / "99-evil.rules").write_text("changed\n", encoding="utf-8")
     after = next(
         o
         for o in scan_persistence(
             targets=[("udev-rule", str(rules / "*.rules"))], home_roots=()
         )
-    ).attributes["sha256_16"]
+    ).attributes["sha256"]
     assert before != after
 
 

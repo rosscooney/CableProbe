@@ -42,8 +42,11 @@ _HOME_ROOTS = ("/root", "/home")
 
 
 def _hash_file(path: Path) -> str | None:
+    # Full digest: this probe's adversary is an implant that wants to change a
+    # persistence file *without* changing the hash we record, so a truncated
+    # digest would only need a 64-bit collision on content it partly controls.
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+        return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         return None
 
@@ -96,7 +99,7 @@ def scan_persistence(
                 attributes={
                     "path": key,
                     "category": label,
-                    "sha256_16": digest,
+                    "sha256": digest,
                     "size": size,
                     "present": digest is not None,
                 },
