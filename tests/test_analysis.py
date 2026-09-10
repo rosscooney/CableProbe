@@ -111,6 +111,51 @@ def test_established_item_deleted_during_post_test_is_recorded(phase_builder):
     assert d["persist:/etc/ld.so.preload"].first_seen_phase == PHASE_POST_TEST
 
 
+def test_ephemeral_listener_churn_is_filtered_but_persistent_one_is_kept(phase_builder):
+    from cableprobe.models import KIND_LISTENING_SOCKET
+
+    def sock(port, ephemeral):
+        return obs(
+            KIND_LISTENING_SOCKET, f"listen:tcp:0.0.0.0:{port}",
+            f"tcp listening on 0.0.0.0:{port}",
+            protocol="tcp", port=port, ephemeral_port=ephemeral,
+        )
+
+    phases = phase_builder(
+        baseline_end=[sock(45001, True), sock(4444, False)],
+        test_end=[sock(46002, True)],
+        post_end=[sock(46002, True)],
+    )
+    d = _by_identity(analyse(phases))
+    # the baseline ephemeral listener that simply closed -> not a phase difference
+    assert "listen:tcp:0.0.0.0:45001" not in d
+    # a fixed-port listener that disappeared is still real signal
+    assert d["listen:tcp:0.0.0.0:4444"].change == "disappeared"
+    # a NEW ephemeral listener that actually stuck around is kept
+    assert d["listen:tcp:0.0.0.0:46002"].change == "appeared"
+
+
+def test_transient_ephemeral_listener_does_not_reach_the_rules():
+    from cableprobe.models import KIND_LISTENING_SOCKET, PHASE_BASELINE, PHASE_POST_TEST, PHASE_TEST
+    from tests.conftest import phase
+
+    def sock(port):
+        return obs(
+            KIND_LISTENING_SOCKET, f"listen:tcp:0.0.0.0:{port}",
+            f"tcp listening on 0.0.0.0:{port}",
+            protocol="tcp", port=port, ephemeral_port=True,
+        )
+
+    churn = sock(40121)
+    phases = {
+        PHASE_BASELINE: phase(PHASE_BASELINE, [], []),
+        PHASE_TEST: phase(PHASE_TEST, [churn], [], offset_minutes=2),  # up at start, gone by end
+        PHASE_POST_TEST: phase(PHASE_POST_TEST, [], [], offset_minutes=4),
+    }
+    deltas = analyse(phases)
+    assert not any(d.kind == KIND_LISTENING_SOCKET for d in deltas)
+
+
 def test_item_that_vanishes_and_returns_within_test_is_recorded():
     from datetime import datetime, timezone
 

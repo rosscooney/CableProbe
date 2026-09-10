@@ -17,6 +17,13 @@ Each release is also published to
 
 ### Fixed
 
+- Ephemeral-range TCP listeners (RPC, mDNS, IDE / peer-discovery helpers) that
+  open and close a fresh high port on their own no longer each show up as a
+  `disappeared` / `appeared (transient)` phase difference - and no longer fire
+  `transient-device-during-test` (medium) on a host with nothing plugged in. A
+  *new* ephemeral listener that actually settles into a test / post-test
+  snapshot is still kept, so a service that deliberately binds a fixed port in
+  that range still surfaces. Reported from a real idle-host run.
 - Listener process attribution (`ss -tlnpH`) now matches on the normalised
   `(family, address, port)`, not the port alone, so two listeners on the same
   port but different addresses - or on the same port but different address

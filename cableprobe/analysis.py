@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import (
+    KIND_LISTENING_SOCKET,
     PHASE_BASELINE,
     PHASE_POST_TEST,
     PHASE_TEST,
@@ -259,7 +260,25 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
             deltas, {**baseline, **test}, post_by_key, phase=PHASE_POST_TEST
         )
     )
-    return deltas
+    return [d for d in deltas if not _is_ephemeral_listener_churn(d)]
+
+
+def _is_ephemeral_listener_churn(d: Delta) -> bool:
+    """An ephemeral-range listening socket that only came and went.
+
+    RPC, mDNS, peer-discovery and IDE-helper sockets bind a fresh high port on
+    every restart and drop it again on their own. Feeding each poll-to-poll flip
+    of one into the phase diff buries the report in ``disappeared`` /
+    ``appeared (transient)`` rows and fires ``transient-device-during-test`` on a
+    host with nothing plugged in. A *new* ephemeral listener that actually
+    settled into a test / post-test steady state is kept - so a service that
+    deliberately binds a fixed port in that range still surfaces.
+    """
+
+    if d.kind != KIND_LISTENING_SOCKET or not d.attributes.get("ephemeral_port"):
+        return False
+    settled = d.present_in.get(PHASE_TEST) or d.present_in.get(PHASE_POST_TEST)
+    return not (d.change == "appeared" and settled)
 
 
 def _change_signature(change: str, attribute_changes: list[AttributeChange]) -> tuple:
