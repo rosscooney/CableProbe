@@ -30,7 +30,7 @@ from cableprobe.models import (
 from cableprobe.knowledge import Allowlist, ImplantList, apply_allowlist
 from cableprobe.probes import Probe, build_probes
 from cableprobe.redact import MASK as _REDACT_MASK
-from cableprobe.rules import _SEVERITY_RANK, RuleSet
+from cableprobe.rules import _SEVERITY_RANK, RuleSet, consolidate
 from cableprobe.system_info import collect_host_info
 
 log = get_logger("session")
@@ -245,11 +245,15 @@ async def run_session(
         await _stop_probes(probes)
 
     deltas = analyse(phases)
-    findings = list(ruleset.evaluate(deltas))
-    if implants is not None:
-        findings.extend(implants.check(deltas))
+    # Allowlist per raw (per-device) finding *before* consolidation, so one
+    # trusted device cannot pull down a finding that also concerns an untrusted
+    # one. Implant findings are already one-per-device; keep them unconsolidated.
+    raw = ruleset.evaluate_raw(deltas)
+    implant_findings = list(implants.check(deltas)) if implants is not None else []
     if allowlist is not None:
-        findings = apply_allowlist(findings, deltas, allowlist)
+        raw = apply_allowlist(raw, deltas, allowlist)
+        implant_findings = apply_allowlist(implant_findings, deltas, allowlist)
+    findings = consolidate(raw) + implant_findings
     findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True)
     summary = build_summary(phases, deltas, findings)
 

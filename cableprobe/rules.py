@@ -193,14 +193,24 @@ class RuleSet(BaseModel):
             return cls.default()
         return cls.load(path)
 
-    def evaluate(self, deltas: list[Delta]) -> list[Finding]:
+    def evaluate_raw(self, deltas: list[Delta]) -> list[Finding]:
+        """One finding per (rule, delta) hit, before consolidation.
+
+        Callers that need to act on a finding per device - e.g. the allowlist,
+        which must not let one trusted device silence another - work from this
+        list and run :func:`consolidate` themselves afterwards.
+        """
+
         raw: list[Finding] = []
         for delta in deltas:
             for rule in self.rules:
                 finding = rule.check(delta)
                 if finding is not None:
                     raw.append(finding)
-        findings = _consolidate(raw)
+        return raw
+
+    def evaluate(self, deltas: list[Delta]) -> list[Finding]:
+        findings = consolidate(self.evaluate_raw(deltas))
         findings.sort(
             key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True
         )
@@ -211,26 +221,32 @@ class RuleSet(BaseModel):
 _CONSOLIDATE_EVIDENCE_CAP = 8
 
 
-def _consolidate(findings: list[Finding]) -> list[Finding]:
+def consolidate(findings: list[Finding]) -> list[Finding]:
     """Collapse multiple hits of the same rule into one finding.
 
     One event (an ethernet gadget enumerating, say) can match a kernel-log rule
     on half a dozen separate log lines. That is one fact, not six findings - so
     hits that share a ``rule_id`` become a single finding whose evidence lists
     each match.
+
+    Grouping is by ``(rule_id, severity)``: findings the allowlist has
+    downgraded to ``info`` for one device stay separate from the still-loud
+    finding about another device that matched the same rule.
     """
 
-    groups: dict[str, list[Finding]] = {}
-    order: list[str] = []
+    groups: dict[tuple[str, str], list[Finding]] = {}
+    order: list[tuple[str, str]] = []
     for finding in findings:
-        if finding.rule_id not in groups:
-            groups[finding.rule_id] = []
-            order.append(finding.rule_id)
-        groups[finding.rule_id].append(finding)
+        key = (finding.rule_id, finding.severity)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(finding)
 
     out: list[Finding] = []
-    for rule_id in order:
-        group = groups[rule_id]
+    for key in order:
+        group = groups[key]
+        rule_id = key[0]
         if len(group) == 1:
             out.append(group[0])
             continue

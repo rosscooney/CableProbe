@@ -17,6 +17,15 @@ Each release is also published to
 
 ### Security
 
+- The device allowlist no longer lets one trusted device silence findings
+  about another. Allowlisting is now applied per device *before* findings are
+  consolidated, so a trusted keyboard on a hub can't downgrade the "HID
+  keyboard appeared" finding for a malicious one plugged in beside it. A
+  finding is downgraded only when every device it names is allowlisted;
+  behavioural alerts (whose identity carries no spoofable VID/PID) are never
+  downgraded; and allowlisting a device whose ID matches a known attack tool
+  now annotates the finding ("also on your allowlist") instead of muting it.
+  Reported via a Codex-assisted review.
 - Privileged report writes no longer follow symlinks. `write_report`, the
   index sidecar and `Allowlist.save` now write to a uniquely-named temp file
   and `rename()` it into place, so a symlink planted at a predictable path in

@@ -223,10 +223,24 @@ class Allowlist:
         return entry
 
 
+#: A finding for one of these rules is never silently downgraded by the
+#: allowlist - allowlisting a device whose ID is a known attack tool is a
+#: contradiction to surface, not a mute button.
+_ALLOWLIST_NEVER_DOWNGRADES = {"known-implant-device"}
+
+
 def apply_allowlist(
     findings: list[Finding], deltas: list[Delta], allowlist: Allowlist
 ) -> list[Finding]:
-    """Return ``findings`` with any that concern an allowlisted device set to info."""
+    """Downgrade to info the findings that concern *only* allowlisted devices.
+
+    Run this on the raw, pre-:func:`~cableprobe.rules.consolidate` findings so
+    one trusted device cannot pull down a finding that also concerns an
+    untrusted one. A finding is downgraded only when every device it identifies
+    (by vendor:product[:serial]) is on the allowlist and it names no
+    un-identifiable device - so behavioural alerts, whose identity carries no
+    spoofable VID/PID, are left alone.
+    """
 
     if not allowlist.entries:
         return findings
@@ -242,24 +256,57 @@ def apply_allowlist(
 
     out: list[Finding] = []
     for finding in findings:
-        entry = None
-        for identity in finding.related_identities:
-            vid, pid, serial = ids.get(identity, (None, None, None))
-            if vid and pid:
-                entry = allowlist.match(vid, pid, serial)
-                if entry is not None:
-                    break
-        if entry is None or finding.severity == "info":
+        if finding.severity == "info" or not finding.related_identities:
             out.append(finding)
             continue
+
+        matched: list[AllowEntry] = []
+        any_unmatched = False
+        for identity in finding.related_identities:
+            vid, pid, serial = ids.get(identity, (None, None, None))
+            if not (vid and pid):
+                any_unmatched = True  # no ID to match -> cannot be allowlisted
+                continue
+            entry = allowlist.match(vid, pid, serial)
+            if entry is None:
+                any_unmatched = True
+            else:
+                matched.append(entry)
+
+        if not matched:
+            out.append(finding)
+            continue
+
+        if finding.rule_id in _ALLOWLIST_NEVER_DOWNGRADES:
+            names = ", ".join(sorted({e.name for e in matched}))
+            out.append(
+                finding.model_copy(
+                    update={
+                        "title": f"{finding.title}  [also on your allowlist: {names}]",
+                        "rationale": (
+                            f"You have allowlisted a device ({names}) whose "
+                            "vendor:product ID also matches a known attack tool. "
+                            "Remove the allowlist entry or confirm the device is "
+                            "genuine - IDs are trivially spoofed. " + finding.rationale
+                        ),
+                    }
+                )
+            )
+            continue
+
+        if any_unmatched:
+            out.append(finding)  # also concerns a non-allowlisted device
+            continue
+
+        names = ", ".join(sorted({e.name for e in matched}))
         out.append(
             finding.model_copy(
                 update={
                     "severity": "info",
-                    "title": f"{finding.title}  [allowlisted: {entry.name}]",
+                    "title": f"{finding.title}  [allowlisted: {names}]",
                     "rationale": (
                         f"Downgraded to info: you have allowlisted this device "
-                        f"({entry.name}). " + finding.rationale
+                        f"({names}). " + finding.rationale
                     ),
                 }
             )

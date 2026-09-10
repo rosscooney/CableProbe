@@ -120,3 +120,35 @@ def test_apply_allowlist_downgrades_matching_findings():
 def test_apply_allowlist_noop_when_empty():
     findings = [Finding(rule_id="x", title="x", severity="high")]
     assert apply_allowlist(findings, [], Allowlist([], None)) is findings
+
+
+def test_allowlisted_device_does_not_downgrade_another_devices_finding():
+    # one trusted keyboard, one untrusted - each triggers the same rule
+    deltas = [
+        _usb_delta("046d", "c31c", "TRUSTED", identity="input:good", kind="input_device"),
+        _usb_delta("dead", "beef", "EVIL", identity="input:evil", kind="input_device"),
+    ]
+    raw = [
+        Finding(rule_id="hid-keyboard-appeared-on-connect", title="HID keyboard appeared",
+                severity="high", related_identities=["input:good"]),
+        Finding(rule_id="hid-keyboard-appeared-on-connect", title="HID keyboard appeared",
+                severity="high", related_identities=["input:evil"]),
+    ]
+    al = Allowlist([], None)
+    al.add("046d", "c31c", "TRUSTED", "my Logitech")
+
+    out = apply_allowlist(raw, deltas, al)
+    by_id = {f.related_identities[0]: f for f in out}
+    assert by_id["input:good"].severity == "info"
+    assert by_id["input:evil"].severity == "high"  # untrusted keyboard still loud
+
+
+def test_apply_allowlist_leaves_behavioural_findings_alone():
+    deltas = [_usb_delta("046d", "c31c", "S", identity="kbdtiming:event3", kind="keystroke_timing")]
+    # a behavioural delta carries no vendor_id -> nothing to allowlist against
+    deltas[0].attributes = {}
+    findings = [Finding(rule_id="keystroke-injection-cadence", title="Injection cadence",
+                        severity="high", related_identities=["kbdtiming:event3"])]
+    al = Allowlist([], None)
+    al.add("046d", "c31c", "S", "my keyboard")
+    assert apply_allowlist(findings, deltas, al)[0].severity == "high"

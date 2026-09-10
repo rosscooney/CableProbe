@@ -103,7 +103,8 @@ async def test_run_session_applies_implants_and_allowlist(fast_config, monkeypat
     )
     assert any(f.rule_id == "known-implant-device" for f in report.findings)
 
-    # now allowlist that exact device -> the implant finding is downgraded
+    # allowlisting a device whose ID is a known attack tool is a contradiction:
+    # the finding stays loud but is annotated, never silently downgraded.
     al = Allowlist([], None)
     al.add("16d0", "0753", "X1", "my dev board")
     fake2 = FakeProbe(fast_config, 0.0, [[]] * 2 + [[implant]] * 2 + [[]] * 2)
@@ -117,8 +118,8 @@ async def test_run_session_applies_implants_and_allowlist(fast_config, monkeypat
     implant_finding = next(
         f for f in report2.findings if f.rule_id == "known-implant-device"
     )
-    assert implant_finding.severity == "info"
-    assert "allowlisted: my dev board" in implant_finding.title
+    assert implant_finding.severity != "info"
+    assert "also on your allowlist: my dev board" in implant_finding.title
 
 
 async def test_run_session_requires_probes(fast_config, monkeypatch):
