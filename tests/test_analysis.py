@@ -101,6 +101,33 @@ def test_a_blatant_start_state_change_is_kept_alongside_the_lasting_one():
     assert "CCC" in afters  # the lasting change too
 
 
+def test_established_item_deleted_during_post_test_is_recorded(phase_builder):
+    from cableprobe.models import PHASE_POST_TEST
+
+    f = obs(KIND_BLOCK_DEVICE, "persist:/etc/ld.so.preload", "preload", sha256="x")
+    phases = phase_builder(baseline_end=[f], test_end=[f], post_end=[])
+    d = _by_identity(analyse(phases))
+    assert d["persist:/etc/ld.so.preload"].change == "disappeared"
+    assert d["persist:/etc/ld.so.preload"].first_seen_phase == PHASE_POST_TEST
+
+
+def test_item_that_vanishes_and_returns_within_test_is_recorded():
+    from datetime import datetime, timezone
+
+    from cableprobe.models import PHASE_BASELINE, PHASE_POST_TEST, PHASE_TEST
+    from tests.conftest import phase
+
+    f = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="x")
+    phases = {
+        PHASE_BASELINE: phase(PHASE_BASELINE, [f], [f]),
+        PHASE_TEST: phase(PHASE_TEST, [], [f], offset_minutes=2),  # gone at start
+        PHASE_POST_TEST: phase(PHASE_POST_TEST, [f], [f], offset_minutes=4),
+    }
+    d = _by_identity(analyse(phases))
+    assert d["persist:/etc/hosts"].change == "disappeared"
+    assert d["persist:/etc/hosts"].first_seen_phase == PHASE_TEST
+
+
 def test_plug_and_vanish_during_post_test_is_transient(phase_builder):
     from cableprobe.models import PHASE_POST_TEST
 

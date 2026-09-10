@@ -208,6 +208,25 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                     )
                 )
 
+        # An established item that survived the test but is gone after the cable
+        # was unplugged - a deletion during post-test. The (in_base, not in_test)
+        # branch above only catches deletion by test-end.
+        if in_base and in_test and not in_post:
+            src = test[key]
+            deltas.append(
+                Delta(
+                    change="disappeared",
+                    kind=kind,
+                    identity=identity,
+                    label=src.label,
+                    first_seen_phase=PHASE_POST_TEST,
+                    present_in=present_in,
+                    reverted_after_disconnect=False,
+                    attributes=src.attributes,
+                    related_events=post_events_for(kind, identity),
+                )
+            )
+
     # The end-snapshot comparison above misses anything that changes *and
     # reverts* between two end snapshots. Also compare the phase start snapshots
     # so a route / persistence change made on connect (or on disconnect) and
@@ -271,6 +290,12 @@ def _boundary_deltas(
     """
 
     seen: dict[tuple[str, str], set[tuple]] = {}
+    #: keys whose appear/disappear lifecycle the main comparison already
+    #: described (in any phase) - a boundary presence flip adds nothing unless
+    #: the item never settled into an end snapshot.
+    main_presence_changes = {
+        (d.kind, d.identity) for d in deltas if d.change in ("appeared", "disappeared")
+    }
     for d in deltas:
         if d.first_seen_phase == phase:
             seen.setdefault((d.kind, d.identity), set()).add(
@@ -310,7 +335,16 @@ def _boundary_deltas(
                         related_events=events_for(kind, identity),
                     )
                 )
-        elif a is not None and not lasted:  # appeared then reverted within phase
+            continue
+
+        # A presence flip at this boundary. Record it only when the end-snapshot
+        # pass genuinely could not have seen it: a plug-and-vanish that never
+        # settled (`not lasted`), or an established item that briefly flipped
+        # mid-phase (the main comparison logged no appear/disappear for it).
+        if lasted and key in main_presence_changes:
+            continue
+
+        if a is not None:  # absent -> present
             _record(
                 Delta(
                     change="appeared",
@@ -320,12 +354,12 @@ def _boundary_deltas(
                     first_seen_phase=phase,
                     present_in=present_in,
                     reverted_after_disconnect=True,
-                    transient=True,
+                    transient=not lasted,
                     attributes=a.attributes,
                     related_events=events_for(kind, identity),
                 )
             )
-        elif b is not None and not lasted:  # vanished then came back within phase
+        elif b is not None:  # present -> absent
             _record(
                 Delta(
                     change="disappeared",
@@ -335,7 +369,7 @@ def _boundary_deltas(
                     first_seen_phase=phase,
                     present_in=present_in,
                     reverted_after_disconnect=True,
-                    transient=True,
+                    transient=not lasted,
                     attributes=b.attributes,
                     related_events=events_for(kind, identity),
                 )

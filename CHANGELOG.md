@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- `analyse()` now detects an established item (a persistence file, a route)
+  that survived the test but is **deleted during post-test**, and one that
+  **briefly vanishes and returns within a phase** - both previously produced no
+  delta, so the `persistence-point-removed-during-session` rule never fired.
+  Reported via a Codex-assisted review.
+
 ### Added
 
 - Persistence findings now cover deletion and post-test timing, which the
