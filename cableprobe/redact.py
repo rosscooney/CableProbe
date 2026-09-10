@@ -8,7 +8,8 @@ during a session. That is useful ("a helper daemon spawned with these flags")
 but argv routinely carries passwords, tokens and API keys, and reports get
 pasted into issues. This is a best-effort scrubber: it catches the common
 shapes (``--password x`` including a value that starts with ``-``, ``TOKEN=x``,
-``curl -u user:pass``, ``user:pass@host`` URLs, JWTs, long high-entropy blobs)
+``curl -u user:pass`` and the glued ``-uuser:pass``, ``user:pass@host`` URLs,
+JWTs, long high-entropy blobs)
 and is deliberately conservative elsewhere so ordinary command lines stay
 readable. It is not a guarantee - a bespoke secret flag or a secret in a bare
 positional argument still slips through, which is why the report flags a
@@ -46,6 +47,11 @@ _USERPASS_FLAGS = {"-u", "--user", "-U", "--proxy-user"}
 #: ``user:password`` -> ``user:***`` (only when we know the arg is a credential).
 _USERPASS = re.compile(r"^([^:\s]+):.+$", re.DOTALL)
 
+#: A short userpass option with its value glued on: ``-ualice:secret``. Only
+#: matched when the value looks like ``user:pass`` (a bare ``-u1000`` is left
+#: alone).
+_GLUED_USERPASS = re.compile(r"^(-[uU])([^\s:]+:.+)$", re.DOTALL)
+
 
 def _looks_high_entropy(token: str) -> bool:
     """True for a long mixed-class blob that is almost certainly a key/token
@@ -77,6 +83,10 @@ def _mask_userpass(value: str) -> str:
 
 def redact_arg(token: str) -> str:
     """Redact a single argv token in isolation (no look-ahead)."""
+
+    m = _GLUED_USERPASS.match(token)
+    if m:
+        return m.group(1) + _mask_userpass(m.group(2))
 
     if "://" in token and _URL_CRED.search(token):
         token = _URL_CRED.sub(rf"\1{MASK}\2", token)

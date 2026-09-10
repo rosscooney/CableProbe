@@ -49,6 +49,11 @@ Each release is also published to
 
 ### Fixed
 
+- Command-line redaction now also handles the glued short-option form
+  `curl -uuser:secret` (previously only `-u user:secret` / `--user=`). Capture
+  policy is unchanged - on by default, warn only when a value was masked - so a
+  bespoke flag or a secret in a bare argument can still slip through. Reported
+  via a Codex-assisted review.
 - Two identical USB devices - or one cloning a trusted device's VID/PID/serial
   - no longer collapse into a single observation. The `usb`, `usb_descriptors`
   and `udev_monitor` probes now key a device on its bus-port topology

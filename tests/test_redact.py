@@ -25,6 +25,7 @@ SECRET = "hunter2SuperSecretValue"
         (["x", "AKIA" + "aB3" * 15], "aB3aB3aB3", "x"),  # long mixed-class blob
         (["curl", "-u", f"alice:{SECRET}", "https://api"], SECRET, "alice:"),
         (["curl", f"--user=bob:{SECRET}"], SECRET, "bob:"),
+        (["curl", f"-ucarol:{SECRET}"], SECRET, "-ucarol:"),  # glued short option
         (["app", "--password", f"-{SECRET}"], SECRET, "--password"),  # value starts with -
     ],
 )
@@ -57,6 +58,7 @@ def test_value_after_a_secret_flag_is_always_masked():
 
 def test_plain_user_flag_without_a_password_is_untouched():
     assert redact_cmdline(["id", "-u", "1000"]) == "id -u 1000"
+    assert redact_cmdline(["chown", "-uroot", "f"]) == "chown -uroot f"  # no ':'
 
 
 def test_accepts_a_string():
