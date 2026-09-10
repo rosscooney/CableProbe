@@ -25,7 +25,7 @@ from pathlib import Path
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import KIND_USB_PD, Observation
-from cableprobe.probes.base import Probe, ProbeAvailability
+from cableprobe.probes.base import Probe, ProbeAvailability, read_sysfs
 
 log = get_logger("probe.usbc_pd")
 
@@ -49,14 +49,6 @@ _PARTNER_FIELDS = (
 )
 
 
-def _read(path: Path) -> str | None:
-    try:
-        value = path.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
-    return value or None
-
-
 def _role(value: str | None) -> str | None:
     """``[source] sink`` -> ``source`` (sysfs marks the active role with [])."""
 
@@ -76,10 +68,10 @@ def _alt_modes(node: Path) -> list[dict]:
         modes.append(
             {
                 "name": child.name,
-                "svid": _read(child / "svid"),
-                "vdo": _read(child / "vdo"),
-                "active": _read(child / "active"),
-                "mode": _read(child / "mode"),
+                "svid": read_sysfs(child / "svid"),
+                "vdo": read_sysfs(child / "vdo"),
+                "active": read_sysfs(child / "active"),
+                "mode": read_sysfs(child / "mode"),
             }
         )
     return modes
@@ -106,7 +98,7 @@ def scan_typec(root: str = SYS_CLASS_TYPEC) -> list[Observation]:
     for port in ports:
         port_attrs: dict[str, object] = {}
         for field in _PORT_FIELDS:
-            raw = _read(port / field)
+            raw = read_sysfs(port / field)
             port_attrs[field] = _role(raw) if field.endswith("_role") else raw
         port_alt = _alt_modes(port)
         partner_dir = base / f"{port.name}-partner"
@@ -130,12 +122,12 @@ def scan_typec(root: str = SYS_CLASS_TYPEC) -> list[Observation]:
         if partner_attached:
             partner_attrs: dict[str, object] = {"port": port.name}
             for field in _PARTNER_FIELDS:
-                partner_attrs[field] = _read(partner_dir / field)
+                partner_attrs[field] = read_sysfs(partner_dir / field)
             identity_dir = partner_dir / "identity"
             if identity_dir.is_dir():
-                partner_attrs["id_header"] = _read(identity_dir / "id_header")
-                partner_attrs["product"] = _read(identity_dir / "product")
-                partner_attrs["cert_stat"] = _read(identity_dir / "cert_stat")
+                partner_attrs["id_header"] = read_sysfs(identity_dir / "id_header")
+                partner_attrs["product"] = read_sysfs(identity_dir / "product")
+                partner_attrs["cert_stat"] = read_sysfs(identity_dir / "cert_stat")
             partner_alt = _alt_modes(partner_dir)
             partner_attrs["alt_modes"] = [m["name"] for m in partner_alt]
             partner_attrs["alt_modes_active"] = sorted(

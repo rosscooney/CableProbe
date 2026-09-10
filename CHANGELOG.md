@@ -22,6 +22,21 @@ Each release is also published to
   consumed by `analyse()`, which only diffs phase boundaries — so this trims
   report size, often substantially on longer sessions, with no change to
   findings. Intra-phase transient detection is tracked in issue #1.
+- The `report` picker no longer parses every saved report to show its one-line
+  summary. `write_report` maintains a small `.cableprobe-index.json` sidecar in
+  the output directory; the picker reads that and only falls back to parsing a
+  report file that is missing from the index.
+
+### Internal
+
+- Consolidated the four near-identical private `_read()` / `_read_text()` sysfs
+  helpers (`usb_sysfs`, `usbc_pd`, `system_state`, `hid_report`) into one
+  `read_sysfs()` in `probes/base.py`.
+
+### Security
+
+- `load_report()` and the report picker now refuse a report file larger than
+  50 MB instead of loading it straight into memory.
 
 ### Packaging
 

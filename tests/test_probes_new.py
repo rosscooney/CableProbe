@@ -987,6 +987,30 @@ def test_wifi_scan_probe_unavailable_without_interface(monkeypatch):
     assert wifi_scan.WifiScanProbe(_CFG, 0.0).availability().ok is False
 
 
+def test_read_sysfs_shared_helper(tmp_path):
+    from cableprobe.probes.base import read_sysfs
+
+    f = tmp_path / "attr"
+    f.write_text("  0x1d6b \n")
+    assert read_sysfs(f) == "0x1d6b"
+    assert read_sysfs(tmp_path / "missing") is None
+    assert read_sysfs(tmp_path / "missing", default="") == ""
+    (tmp_path / "empty").write_text("   \n")
+    assert read_sysfs(tmp_path / "empty") is None
+
+
+def test_probe_modules_use_the_shared_read_sysfs():
+    # E2: usb_sysfs / usbc_pd / system_state / hid_report no longer carry their
+    # own copy of the sysfs reader.
+    import cableprobe.probes.base as base
+    from cableprobe.probes import hid_report, system_state, usb_sysfs, usbc_pd
+
+    for mod in (usb_sysfs, usbc_pd, system_state, hid_report):
+        assert mod.read_sysfs is base.read_sysfs
+        assert not hasattr(mod, "_read")
+        assert not hasattr(mod, "_read_text")
+
+
 def test_keystroke_probe_disabled_by_config():
     cfg = Config.model_validate({"probes": {"capture_keystroke_timing": False}})
     from cableprobe.probes.keystroke_cadence import KeystrokeCadenceProbe

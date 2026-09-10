@@ -11,7 +11,17 @@ from cableprobe.models import (
     SessionMetadata,
     SessionReport,
 )
-from cableprobe.report import exit_code_for, load_report, render_summary, write_report
+import pytest
+
+from cableprobe.report import (
+    REPORT_INDEX_NAME,
+    exit_code_for,
+    load_report,
+    read_report_index,
+    render_summary,
+    report_card_for,
+    write_report,
+)
 from cableprobe.rules import RuleSet
 from tests.conftest import obs
 
@@ -99,6 +109,36 @@ def test_unavailable_probes_roundtrip_and_render(tmp_path, phase_builder, capsys
 
     render_summary(report)  # rich path must not raise and names the skipped probes
     assert "usbc_pd, pci" in capsys.readouterr().out
+
+
+def test_write_report_maintains_sidecar_index(tmp_path, phase_builder):
+    path = write_report(_report(phase_builder), tmp_path)
+    index = read_report_index(tmp_path)
+    assert path.name in index
+    card = index[path.name]
+    assert card["session_name"] == "unit-test"
+    assert card["highest_severity"] == "high"  # keyboard rule
+    # the picker does not fall back to parsing the file when the index has it
+    assert report_card_for(path, index) == card
+
+
+def test_list_reports_falls_back_when_index_missing(tmp_path, phase_builder):
+    path = write_report(_report(phase_builder), tmp_path)
+    (tmp_path / REPORT_INDEX_NAME).unlink()
+    card = report_card_for(path, read_report_index(tmp_path))
+    assert card["session_name"] == "unit-test"
+    assert card["highest_severity"] == "high"
+
+
+def test_load_report_rejects_oversized_file(tmp_path, phase_builder, monkeypatch):
+    import cableprobe.report as report_mod
+
+    path = write_report(_report(phase_builder), tmp_path)
+    monkeypatch.setattr(report_mod, "MAX_REPORT_BYTES", 10)
+    with pytest.raises(ValueError, match="refusing to load"):
+        load_report(path)
+    # the picker degrades gracefully rather than raising
+    assert report_card_for(path, None) == {}
 
 
 def test_summary_has_expected_keys(phase_builder):

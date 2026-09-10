@@ -25,7 +25,7 @@ from cableprobe.models import (
     KIND_PCI_DEVICE,
     Observation,
 )
-from cableprobe.probes.base import Probe, ProbeAvailability
+from cableprobe.probes.base import Probe, ProbeAvailability, read_sysfs
 
 log = get_logger("probe.system_state")
 
@@ -167,13 +167,6 @@ _PCI_CLASS_NAMES = {
 }
 
 
-def _read(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
-
-
 def scan_pci_sysfs(
     pci_root: str = SYS_BUS_PCI, tb_root: str = SYS_BUS_THUNDERBOLT
 ) -> list[Observation]:
@@ -182,9 +175,9 @@ def scan_pci_sysfs(
     base = Path(pci_root)
     if base.is_dir():
         for entry in sorted(base.iterdir()):
-            vendor = (_read(entry / "vendor") or "").replace("0x", "")
-            device = (_read(entry / "device") or "").replace("0x", "")
-            pci_class = (_read(entry / "class") or "").replace("0x", "")
+            vendor = (read_sysfs(entry / "vendor") or "").replace("0x", "")
+            device = (read_sysfs(entry / "device") or "").replace("0x", "")
+            pci_class = (read_sysfs(entry / "class") or "").replace("0x", "")
             driver = None
             drv = entry / "driver"
             if drv.is_symlink() or drv.exists():
@@ -221,13 +214,13 @@ def scan_pci_sysfs(
                     identity=f"thunderbolt:{entry.name}",
                     label=(
                         f"Thunderbolt device {entry.name}: "
-                        f"{_read(entry / 'device_name') or '?'}"
+                        f"{read_sysfs(entry / 'device_name') or '?'}"
                     ),
                     attributes={
                         "name": entry.name,
-                        "device_name": _read(entry / "device_name"),
-                        "vendor_name": _read(entry / "vendor_name"),
-                        "authorized": _read(entry / "authorized"),
+                        "device_name": read_sysfs(entry / "device_name"),
+                        "vendor_name": read_sysfs(entry / "vendor_name"),
+                        "authorized": read_sysfs(entry / "authorized"),
                         "bus": "thunderbolt",
                     },
                 )

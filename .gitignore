@@ -19,6 +19,7 @@ htmlcov/
 # CableProbe session output
 cableprobe-sessions/
 *.cableprobe.json
+.cableprobe-index.json
 
 # Editors / OS
 .idea/

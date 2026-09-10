@@ -30,6 +30,85 @@ except Exception:  # pragma: no cover - defensive
 #: keep them owner-readable only.
 REPORT_FILE_MODE = 0o600
 
+#: Refuse to load a report file larger than this. A well-formed report is a few
+#: hundred KB; anything past this is corrupt or hostile and would only OOM us.
+MAX_REPORT_BYTES = 50 * 1024 * 1024
+
+#: Sidecar in the output directory: ``{filename: card}`` so the report picker
+#: does not have to parse every saved report just to show a one-line summary.
+REPORT_INDEX_NAME = ".cableprobe-index.json"
+
+
+def _read_json_capped(path: Path) -> object:
+    """``json.loads`` a file, but reject anything over :data:`MAX_REPORT_BYTES`."""
+
+    path = Path(path)
+    size = path.stat().st_size
+    if size > MAX_REPORT_BYTES:
+        raise ValueError(
+            f"{path.name} is {size} bytes (> {MAX_REPORT_BYTES}); refusing to load"
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def report_card(report: SessionReport) -> dict:
+    """The handful of fields the report picker shows for each saved session."""
+
+    return {
+        "session_name": report.metadata.session_name,
+        "started_at": report.metadata.started_at.isoformat(),
+        "highest_severity": report.summary.get("highest_severity"),
+        "finding_count": report.summary.get("finding_count"),
+    }
+
+
+def read_report_index(output_dir: Path) -> dict:
+    """Load the sidecar index, or ``{}`` if it is missing or unreadable."""
+
+    try:
+        data = json.loads((Path(output_dir) / REPORT_INDEX_NAME).read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_report_index_entry(output_dir: Path, filename: str, card: dict) -> None:
+    """Best-effort: fold one card into the sidecar index. Never raises."""
+
+    index_path = Path(output_dir) / REPORT_INDEX_NAME
+    index = read_report_index(output_dir)
+    index[filename] = card
+    try:
+        index_path.write_text(json.dumps(index), encoding="utf-8")
+        os.chmod(index_path, REPORT_FILE_MODE)
+    except OSError:  # pragma: no cover - non-POSIX / unusual filesystems
+        pass
+
+
+def report_card_for(path: Path, index: dict | None = None) -> dict:
+    """Return the summary card for a saved report: from the index if present,
+    otherwise by parsing the file (size-capped). Missing/broken -> ``{}``."""
+
+    path = Path(path)
+    if index is not None:
+        card = index.get(path.name)
+        if isinstance(card, dict):
+            return card
+    try:
+        data = _read_json_capped(path)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    meta = data.get("metadata") or {}
+    summary = data.get("summary") or {}
+    return {
+        "session_name": meta.get("session_name"),
+        "started_at": meta.get("started_at"),
+        "highest_severity": summary.get("highest_severity"),
+        "finding_count": summary.get("finding_count"),
+    }
+
 
 _SEVERITY_STYLE = {
     "critical": "bold white on red",
@@ -55,11 +134,12 @@ def write_report(report: SessionReport, output_dir: Path, *, filename: str | Non
         os.chmod(path, REPORT_FILE_MODE)
     except OSError:  # pragma: no cover - non-POSIX / unusual filesystems
         pass
+    _write_report_index_entry(output_dir, filename, report_card(report))
     return path
 
 
 def load_report(path: Path | str) -> SessionReport:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = _read_json_capped(Path(path))
     return SessionReport.model_validate(data)
 
 

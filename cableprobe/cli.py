@@ -28,7 +28,9 @@ from cableprobe.probes import PROBE_REGISTRY
 from cableprobe.report import (
     exit_code_for,
     load_report,
+    read_report_index,
     render_summary,
+    report_card_for,
     write_report,
 )
 from cableprobe.rules import RuleSet
@@ -798,23 +800,27 @@ _SEVERITY_COLOUR = {
 
 
 def _list_saved_reports(output_dir: Path) -> list[tuple[Path, dict]]:
-    """Return (path, {name, when, severity, findings}) newest-first."""
+    """Return (path, {name, when, severity, findings}) newest-first.
 
+    Reads the sidecar index written by ``write_report``; only falls back to
+    parsing a report file when it is missing from the index.
+    """
+
+    index = read_report_index(output_dir)
     rows: list[tuple[Path, dict]] = []
     for path in sorted(output_dir.glob("*.cableprobe.json"), reverse=True):
-        meta = {"name": path.stem, "when": "", "severity": None, "findings": None}
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            meta["name"] = data.get("metadata", {}).get("session_name") or path.stem
-            meta["when"] = data.get("metadata", {}).get("started_at", "")[:19].replace(
-                "T", " "
+        card = report_card_for(path, index)
+        rows.append(
+            (
+                path,
+                {
+                    "name": card.get("session_name") or path.stem,
+                    "when": (card.get("started_at") or "")[:19].replace("T", " "),
+                    "severity": card.get("highest_severity"),
+                    "findings": card.get("finding_count"),
+                },
             )
-            summary = data.get("summary", {})
-            meta["severity"] = summary.get("highest_severity")
-            meta["findings"] = summary.get("finding_count")
-        except (OSError, ValueError):
-            pass
-        rows.append((path, meta))
+        )
     return rows
 
 

@@ -89,6 +89,20 @@ def have_tool(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def read_sysfs(path: Path | str, default: str | None = None) -> str | None:
+    """Read a sysfs / procfs text attribute.
+
+    Returns the file's stripped contents, or ``default`` if the file is missing,
+    unreadable, or empty after stripping.
+    """
+
+    try:
+        value = Path(path).read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        return default
+    return value or default
+
+
 def sysfs_device_is_usb(sys_dir: Path | str) -> bool:
     """True if the ``device`` symlink under a ``/sys/class/<x>/<name>`` dir
     resolves to a path that traverses the USB bus."""

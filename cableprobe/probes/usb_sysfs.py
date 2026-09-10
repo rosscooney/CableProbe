@@ -28,7 +28,7 @@ from cableprobe.models import (
     KIND_USB_TOPOLOGY,
     Observation,
 )
-from cableprobe.probes.base import Probe, ProbeAvailability
+from cableprobe.probes.base import Probe, ProbeAvailability, read_sysfs
 
 log = get_logger("probe.usb_sysfs")
 
@@ -58,13 +58,6 @@ USB_CLASS_NAMES = {
     "fe": "application-specific",
     "ff": "vendor-specific",
 }
-
-
-def _read(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
 
 
 def _class_name(code: str | None) -> str | None:
@@ -101,24 +94,24 @@ def scan_usb_sysfs(root: str = SYS_BUS_USB_DEVICES) -> list[dict]:
     for entry in sorted(base.iterdir()):
         if not _is_device_dir(entry):
             continue
-        vid = (_read(entry / "idVendor") or "").lower()
-        pid = (_read(entry / "idProduct") or "").lower()
-        device_class = _read(entry / "bDeviceClass")
+        vid = (read_sysfs(entry / "idVendor") or "").lower()
+        pid = (read_sysfs(entry / "idProduct") or "").lower()
+        device_class = read_sysfs(entry / "bDeviceClass")
         record: dict = {
             "sysname": entry.name,
             "vendor_id": vid,
             "product_id": pid,
-            "manufacturer": _read(entry / "manufacturer"),
-            "product": _read(entry / "product"),
-            "serial": _read(entry / "serial"),
+            "manufacturer": read_sysfs(entry / "manufacturer"),
+            "product": read_sysfs(entry / "product"),
+            "serial": read_sysfs(entry / "serial"),
             "device_class": device_class,
             "device_class_name": _class_name(device_class),
-            "num_configurations": _read(entry / "bNumConfigurations"),
-            "num_interfaces": _read(entry / "bNumInterfaces"),
-            "max_power": _read(entry / "bMaxPower"),
-            "speed": _read(entry / "speed"),
-            "version": _read(entry / "version"),
-            "maxchild": _read(entry / "maxchild"),
+            "num_configurations": read_sysfs(entry / "bNumConfigurations"),
+            "num_interfaces": read_sysfs(entry / "bNumInterfaces"),
+            "max_power": read_sysfs(entry / "bMaxPower"),
+            "speed": read_sysfs(entry / "speed"),
+            "version": read_sysfs(entry / "version"),
+            "maxchild": read_sysfs(entry / "maxchild"),
             "depth": _depth(entry.name),
             "is_root_hub": _is_root_hub(entry.name),
             "interfaces": [],
@@ -126,7 +119,7 @@ def scan_usb_sysfs(root: str = SYS_BUS_USB_DEVICES) -> list[dict]:
         for iface in sorted(entry.iterdir()):
             if not (iface.is_dir() and iface.name.startswith(entry.name + ":")):
                 continue
-            iclass = _read(iface / "bInterfaceClass")
+            iclass = read_sysfs(iface / "bInterfaceClass")
             driver = None
             drv_link = iface / "driver"
             if drv_link.is_symlink() or drv_link.exists():
@@ -137,12 +130,12 @@ def scan_usb_sysfs(root: str = SYS_BUS_USB_DEVICES) -> list[dict]:
             record["interfaces"].append(
                 {
                     "sysname": iface.name,
-                    "number": _read(iface / "bInterfaceNumber"),
+                    "number": read_sysfs(iface / "bInterfaceNumber"),
                     "class": iclass,
                     "class_name": _class_name(iclass),
-                    "subclass": _read(iface / "bInterfaceSubClass"),
-                    "protocol": _read(iface / "bInterfaceProtocol"),
-                    "num_endpoints": _read(iface / "bNumEndpoints"),
+                    "subclass": read_sysfs(iface / "bInterfaceSubClass"),
+                    "protocol": read_sysfs(iface / "bInterfaceProtocol"),
+                    "num_endpoints": read_sysfs(iface / "bNumEndpoints"),
                     "endpoint_types": _endpoint_types(iface),
                     "driver": driver,
                 }
@@ -164,7 +157,7 @@ def _endpoint_types(iface: Path) -> list[str]:
     for ep in sorted(iface.iterdir()):
         if not (ep.is_dir() and ep.name.startswith("ep_")):
             continue
-        raw = _read(ep / "bmAttributes")
+        raw = read_sysfs(ep / "bmAttributes")
         try:
             types.append(_EP_TYPE.get(int(raw, 16) & 0x03, raw))
         except (TypeError, ValueError):

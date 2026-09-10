@@ -22,7 +22,7 @@ from pathlib import Path
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import KIND_HID_REPORT, Observation
-from cableprobe.probes.base import Probe, ProbeAvailability
+from cableprobe.probes.base import Probe, ProbeAvailability, read_sysfs
 
 log = get_logger("probe.hid_report")
 
@@ -95,8 +95,8 @@ def _declared_kind(sys_dir: Path) -> str:
     """boot-protocol / driver hint for what the device claims to be."""
 
     name = (
-        _read_text(sys_dir / "device" / "name")
-        or _read_text(sys_dir / "name")
+        read_sysfs(sys_dir / "device" / "name")
+        or read_sysfs(sys_dir / "name")
         or ""
     ).lower()
     if "keyboard" in name:
@@ -104,13 +104,6 @@ def _declared_kind(sys_dir: Path) -> str:
     if "mouse" in name or "pointer" in name or "trackpad" in name:
         return "pointer"
     return "other"
-
-
-def _read_text(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
 
 
 def scan_hid_reports(root: str = SYS_BUS_HID_DEVICES) -> list[Observation]:
