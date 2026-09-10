@@ -172,59 +172,88 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                     )
                 )
 
-    deltas.extend(_transient_deltas(deltas, baseline, test_events))
+        # A modification that lands only in post-test (e.g. a persistence file
+        # rewritten after the cable was pulled) - independent of the branches
+        # above, which only compare baseline vs test.
+        if in_test and in_post:
+            post_changes = _diff_attributes(
+                test[key].attributes, post[key].attributes
+            )
+            if post_changes:
+                deltas.append(
+                    Delta(
+                        change="modified",
+                        kind=kind,
+                        identity=identity,
+                        label=post[key].label,
+                        first_seen_phase=PHASE_POST_TEST,
+                        present_in=present_in,
+                        attributes=post[key].attributes,
+                        attribute_changes=post_changes,
+                        related_events=_events_for(identity, kind, post_events),
+                    )
+                )
+
+    deltas.extend(_transient_deltas(deltas, baseline, test_events, phase=PHASE_TEST))
+    deltas.extend(
+        _transient_deltas(
+            deltas, {**baseline, **test}, post_events, phase=PHASE_POST_TEST
+        )
+    )
     return deltas
 
 
 def _transient_deltas(
     existing: list[Delta],
-    baseline: dict[tuple[str, str], Observation],
-    test_events: list[ProbeEvent],
+    seen_in_snapshots: dict[tuple[str, str], Observation],
+    events: list[ProbeEvent],
+    *,
+    phase: str,
 ) -> list[Delta]:
-    """Devices that were both ADDED and REMOVED during TEST and never landed in
-    an end-of-phase snapshot - a genuine plug-and-vanish.
+    """Devices ADDED and REMOVED within ``phase`` that never landed in an
+    end-of-phase snapshot - a genuine plug-and-vanish.
 
-    A device that was only added (and stays, or is removed later in post-test)
-    is not transient; if a snapshot probe missed it that is a keying problem,
-    not a short-lived payload, and flagging it just adds noise.
+    A device that was only added (and stays, or is removed in a later phase) is
+    not transient; if a snapshot probe missed it that is a keying problem, not a
+    short-lived payload, and flagging it just adds noise.
     """
 
     known = {(d.kind, d.identity) for d in existing}
     removed_keys: set[tuple[str, str]] = set()
     events_by_key: dict[tuple[str, str], list[ProbeEvent]] = {}
-    for event in test_events:
+    for event in events:
         key = (event.kind, event.identity)
         events_by_key.setdefault(key, []).append(event)
         if event.action in _REMOVE_ACTIONS:
             removed_keys.add(key)
 
     out: list[Delta] = []
-    for key, events in events_by_key.items():
-        if key in known or key in baseline:
+    for key, key_events in events_by_key.items():
+        if key in known or key in seen_in_snapshots:
             continue
-        if not any(e.action in _ADD_ACTIONS for e in events):
+        if not any(e.action in _ADD_ACTIONS for e in key_events):
             continue
         if key not in removed_keys:
             continue
         known.add(key)
         kind, identity = key
-        first_add = next(e for e in events if e.action in _ADD_ACTIONS)
+        first_add = next(e for e in key_events if e.action in _ADD_ACTIONS)
         out.append(
             Delta(
                 change="appeared",
                 kind=kind,
                 identity=identity,
                 label=first_add.label,
-                first_seen_phase=PHASE_TEST,
+                first_seen_phase=phase,
                 present_in={
                     PHASE_BASELINE: False,
                     PHASE_TEST: False,
                     PHASE_POST_TEST: False,
                 },
-                reverted_after_disconnect=True,  # add + remove seen within TEST
+                reverted_after_disconnect=True,  # add + remove seen within one phase
                 transient=True,
                 attributes=first_add.attributes,
-                related_events=events,
+                related_events=key_events,
             )
         )
     return out

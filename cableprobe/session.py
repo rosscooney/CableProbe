@@ -162,9 +162,11 @@ async def _observe_phase(
 ) -> PhaseObservation:
     started_at = utcnow()
     start_snapshot = await _capture(probes)
-    _drain(probes)  # reset: events from here on belong to this phase
+    # Events queued during the lead-in - the operator prompt, the plug/unplug
+    # action itself, the start-snapshot capture - are this phase's opening
+    # moments. Keep them (they used to be discarded, losing the connect uevent).
+    events: list[ProbeEvent] = _drain(probes)
 
-    events: list[ProbeEvent] = []
     elapsed = 0.0
     while elapsed < duration:
         step = min(interval, duration - elapsed)

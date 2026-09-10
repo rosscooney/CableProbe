@@ -36,6 +36,38 @@ def test_device_appears_during_test_and_reverts(phase_builder):
     assert d["input:aaa"].reverted_after_disconnect is True
 
 
+def test_modification_only_in_post_test_is_detected(phase_builder):
+    from cableprobe.models import PHASE_POST_TEST
+
+    before = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="aaa")
+    after = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="bbb")
+    # unchanged from baseline through test; rewritten only after disconnect
+    phases = phase_builder(baseline_end=[before], test_end=[before], post_end=[after])
+    d = _by_identity(analyse(phases))
+
+    assert "persist:/etc/hosts" in d
+    assert d["persist:/etc/hosts"].change == "modified"
+    assert d["persist:/etc/hosts"].first_seen_phase == PHASE_POST_TEST
+    assert any(c.key == "sha256" for c in d["persist:/etc/hosts"].attribute_changes)
+
+
+def test_plug_and_vanish_during_post_test_is_transient(phase_builder):
+    from cableprobe.models import PHASE_POST_TEST
+
+    phases = phase_builder(
+        baseline_end=[],
+        test_end=[],
+        post_end=[],
+        post_events=[
+            event("add", KIND_USB_DEVICE, "usb:dead:beef", "ghost"),
+            event("remove", KIND_USB_DEVICE, "usb:dead:beef", "ghost"),
+        ],
+    )
+    d = _by_identity(analyse(phases))
+    assert d["usb:dead:beef"].transient is True
+    assert d["usb:dead:beef"].first_seen_phase == PHASE_POST_TEST
+
+
 def test_device_appears_and_persists(phase_builder):
     keyboard = obs(KIND_INPUT_DEVICE, "input:aaa", "Sticky Keyboard")
     phases = phase_builder(baseline_end=[], test_end=[keyboard], post_end=[keyboard])

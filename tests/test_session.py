@@ -45,6 +45,31 @@ async def _noop_sleep(_seconds):
     return None
 
 
+async def test_observe_phase_keeps_lead_in_events(fast_config):
+    from cableprobe.session import _observe_phase
+    from tests.conftest import event as _event
+
+    class QueuedEvent(Probe):
+        name = "q"
+
+        def __init__(self):
+            super().__init__(fast_config, 0.0)
+            self._pending = [_event("add", "usb_device", "usb:x", "x")]
+
+        def snapshot(self):
+            return []
+
+        def drain_events(self):
+            out, self._pending = self._pending, []
+            return out
+
+    # the event was queued before the phase loop starts (the "connect now" prompt)
+    result = await _observe_phase(
+        [QueuedEvent()], "test", 1.0, 1.0, sleep=_noop_sleep
+    )
+    assert [e.identity for e in result.events] == ["usb:x"]
+
+
 async def test_run_session_detects_cable_correlated_device(fast_config, monkeypatch):
     kb = Observation(
         kind=KIND_INPUT_DEVICE,

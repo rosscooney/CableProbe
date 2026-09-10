@@ -17,6 +17,14 @@ Each release is also published to
 
 ### Changed
 
+- Phase analysis no longer misses two classes of evidence. `analyse()` now
+  compares the test and post-test snapshots, so an attribute change that lands
+  only after the cable is unplugged (a persistence file rewritten post-
+  disconnect) produces a `modified` delta; plug-and-vanish during post-test is
+  caught as a transient too. `_observe_phase()` keeps the events queued during
+  the lead-in (the connect/disconnect prompt and the plug action itself)
+  instead of discarding them, so the connect uevent is no longer lost.
+  Reported via a Codex-assisted review.
 - A session where monitoring failed no longer reports as clean. Per-probe
   snapshot failures are aggregated into `metadata.probe_snapshot_errors` and
   `summary.coverage`, shown as a prominent "coverage incomplete" block in both
