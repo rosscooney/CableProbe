@@ -82,10 +82,13 @@ def _fingerprint(path: Path) -> dict:
     try:
         fd = os.open(path, os.O_RDONLY | _O_NONBLOCK)
     except OSError:
-        # a broken symlink still "exists" as a link
-        info["present"] = info["symlink_target"] is not None
-        if info["present"]:
-            info["regular_file"] = False
+        # It exists (a broken symlink, or a real file we cannot open - EACCES,
+        # a device that would block) but we could not read it: present, and
+        # `sha256 is None` makes _emit mark it fingerprint_incomplete.
+        try:
+            info["present"] = os.path.lexists(path)
+        except OSError:  # pragma: no cover
+            info["present"] = info["symlink_target"] is not None
         return info
     try:
         st = os.fstat(fd)

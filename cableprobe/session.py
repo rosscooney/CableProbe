@@ -91,19 +91,18 @@ def _snapshot_error_summary(phases: dict[str, PhaseObservation]) -> dict[str, st
 
 
 def _incomplete_persistence(phases: dict[str, PhaseObservation]) -> list[str]:
-    """Persistence items that existed at the end of the session but could not be
-    fully fingerprinted (a FIFO, a symlink to a special file, > the hash cap) -
-    a standing monitoring blind spot, not just a change."""
+    """Persistence items that at *any* snapshot this session existed but could
+    not be fully fingerprinted (a FIFO, a symlink to a special file, an
+    unreadable file, > the hash cap) - a standing monitoring blind spot."""
 
     out: set[str] = set()
-    end = phases.get(PHASE_POST_TEST) or phases.get(PHASE_TEST)
-    if end is None:
-        return []
-    for obs in end.end_snapshot.observations:
-        if obs.kind == KIND_PERSISTENCE_ITEM and obs.attributes.get(
-            "fingerprint_incomplete"
-        ):
-            out.add(str(obs.attributes.get("path") or obs.identity))
+    for phase in phases.values():
+        for snap in (phase.start_snapshot, phase.end_snapshot):
+            for obs in snap.observations:
+                if obs.kind == KIND_PERSISTENCE_ITEM and obs.attributes.get(
+                    "fingerprint_incomplete"
+                ):
+                    out.add(str(obs.attributes.get("path") or obs.identity))
     return sorted(out)
 
 

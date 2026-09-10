@@ -17,6 +17,12 @@ Each release is also published to
 
 ### Fixed
 
+- A monitored persistence file that exists but cannot be read (permission
+  denied, or it would block) is no longer reported as *absent*: it is now
+  `present` with `fingerprint_incomplete`, which counts toward incomplete
+  coverage. `_incomplete_persistence()` also scans every phase snapshot, not
+  just the last one, so an earlier gap is not lost. Reported via a Codex-
+  assisted review.
 - `analyse()` now detects an established item (a persistence file, a route)
   that survived the test but is **deleted during post-test**, and one that
   **briefly vanishes and returns within a phase** - both previously produced no

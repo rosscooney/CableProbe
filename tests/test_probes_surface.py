@@ -129,6 +129,25 @@ def test_scan_persistence_hashes_targets(tmp_path):
     assert before != after
 
 
+def test_scan_persistence_marks_an_unreadable_file_incomplete(tmp_path, monkeypatch):
+    import cableprobe.probes.persistence as mod
+
+    f = tmp_path / "hosts"
+    f.write_text("data")
+    real_open = mod.os.open
+
+    def _deny(path, *a, **k):
+        if str(path) == str(f):
+            raise PermissionError(13, "denied")
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(mod.os, "open", _deny)
+    (item,) = scan_persistence(targets=[("hosts", str(f))], home_roots=())
+    assert item.attributes["present"] is True  # not mistaken for absent
+    assert item.attributes["sha256"] is None
+    assert item.attributes["fingerprint_incomplete"] is True
+
+
 def test_scan_persistence_does_not_hang_on_a_fifo_authorized_keys(tmp_path):
     import os
 
