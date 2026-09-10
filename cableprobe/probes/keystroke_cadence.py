@@ -150,14 +150,18 @@ def _can_read_input() -> bool:
 
 
 def _device_name(event_name: str, sys_root: str = SYS_CLASS_INPUT) -> str:
+    # buckets for a finished device instance are keyed "eventN#K"
+    node, _, instance = event_name.partition("#")
+    suffix = f" (instance {instance})" if instance else ""
     try:
-        return (
-            Path(sys_root, event_name, "device", "name")
+        name = (
+            Path(sys_root, node, "device", "name")
             .read_text(encoding="utf-8", errors="ignore")
             .strip()
-        ) or event_name
+        )
     except OSError:
-        return event_name
+        name = ""
+    return (name or node) + suffix
 
 
 class KeystrokeCadenceProbe(Probe):
@@ -225,12 +229,14 @@ class KeystrokeCadenceProbe(Probe):
         open_fds: dict[int, tuple[str, int]] = {}  # fd -> (node path, st_rdev)
         open_rdev: set[int] = set()  # device numbers already open (survives re-plug)
         quarantine: dict[int, float] = {}  # st_rdev -> monotonic time to retry
-        node_rdev: dict[str, int] = {}  # node name -> the device number last seen there
+        live_nodes: set[str] = set()  # node names with a currently-open fd
+        instance_count: dict[str, int] = {}  # node name -> how many times opened
 
         def _drop(fd: int, *, quarantine_it: bool = False) -> None:
             entry = open_fds.pop(fd, None)
             if entry is not None:
                 open_rdev.discard(entry[1])
+                live_nodes.discard(Path(entry[0]).name)
                 if quarantine_it:
                     quarantine[entry[1]] = time.monotonic() + self._QUARANTINE_SECONDS
             try:
@@ -256,12 +262,16 @@ class KeystrokeCadenceProbe(Probe):
                     open_fds[fd] = (node, rdev)
                     open_rdev.add(rdev)
                     name = Path(node).name
-                    if node_rdev.get(name) not in (None, rdev):
-                        # this /dev/input/eventN was reused by a different
-                        # device - don't mix its timing with the old one
+                    if name not in live_nodes and name in self._timestamps:
+                        # a disconnect/reconnect on this node (even reusing the
+                        # same device number) - a new device instance. Archive
+                        # the finished one so its timing is still reported, but
+                        # never mixed with the new device's.
+                        n = instance_count.get(name, 1)
+                        instance_count[name] = n + 1
                         with self._lock:
-                            self._timestamps.pop(name, None)
-                    node_rdev[name] = rdev
+                            self._timestamps[f"{name}#{n}"] = self._timestamps.pop(name)
+                    live_nodes.add(name)
 
                 if not open_fds:
                     time.sleep(0.5)

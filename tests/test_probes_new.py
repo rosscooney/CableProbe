@@ -1047,6 +1047,56 @@ def test_keystroke_reader_quarantines_a_wedged_device_instead_of_busy_looping(mo
     assert len(opens) <= 3
 
 
+def test_keystroke_reader_separates_instances_on_a_reused_node(monkeypatch):
+    import threading
+    import time as _time
+
+    from cableprobe.probes import keystroke_cadence as ks
+
+    real_stat, real_open, real_close = ks.os.stat, ks.os.open, ks.os.close
+    monkeypatch.setattr(ks.glob, "glob", lambda _pat: ["/dev/input/event9"])
+    monkeypatch.setattr(
+        ks.os, "stat",
+        lambda p, *a, **k: type("S", (), {"st_rdev": 42})()
+        if str(p) == "/dev/input/event9" else real_stat(p, *a, **k),
+    )
+    import itertools
+
+    fds = itertools.chain([100, 101], itertools.repeat(999))
+    monkeypatch.setattr(
+        ks.os, "open",
+        lambda p, *a, **k: next(fds) if str(p) == "/dev/input/event9" else real_open(p, *a, **k),
+    )
+    monkeypatch.setattr(
+        ks.os, "close", lambda fd: None if fd >= 100 else real_close(fd)
+    )
+    monkeypatch.setattr(ks.select, "select", lambda r, w, x, t: (list(r), [], []))
+
+    # fd 100: one press at t=1.0; then EOF; fd 101: one press at t=100.0; then hang
+    reads = {100: [b"press@1", b""], 101: [b"press@100"]}
+    monkeypatch.setattr(
+        ks.os, "read", lambda fd, _n: reads.get(fd, [b""]).pop(0) if reads.get(fd) else b""
+    )
+    monkeypatch.setattr(
+        ks, "parse_key_down_timestamps",
+        lambda raw, **k: [1.0] if b"@1" in raw and b"@100" not in raw else ([100.0] if b"@100" in raw else []),
+    )
+
+    probe = ks.KeystrokeCadenceProbe(_CFG, 0.0)
+    probe._enabled = True
+    t = threading.Thread(target=probe._run, daemon=True)
+    t.start()
+    _time.sleep(0.4)
+    probe._stop.set()
+    t.join(timeout=2.0)
+
+    buckets = {name: list(v) for name, v in probe._timestamps.items()}
+    # the two instances are in different buckets, never merged into [1.0, 100.0]
+    assert [1.0] in buckets.values()
+    assert [100.0] in buckets.values()
+    assert not any(sorted(v) == [1.0, 100.0] for v in buckets.values())
+
+
 async def test_udev_monitor_start_raises_when_the_monitor_cannot_be_created(monkeypatch):
     from cableprobe.probes import udev_monitor
 
