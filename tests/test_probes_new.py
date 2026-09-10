@@ -443,6 +443,26 @@ def test_annotate_with_ss_distinguishes_same_port_different_address():
     assert "EVIL" in b.attributes["process"]  # not attributed to goodsvc
 
 
+def test_annotate_with_ss_distinguishes_ipv4_and_ipv6_wildcards():
+    from cableprobe.models import KIND_LISTENING_SOCKET, Observation
+
+    def _o(endpoint, proto):
+        return Observation(
+            kind=KIND_LISTENING_SOCKET, identity=f"listen:{proto}:{endpoint}",
+            label=endpoint, attributes={"endpoint": endpoint, "protocol": proto},
+        )
+
+    v4 = _o("0.0.0.0:8000", "tcp")
+    v6 = _o("[::]:8000", "tcp6")
+    ss = (
+        'LISTEN 0 5 0.0.0.0:8000 0.0.0.0:* users:(("v4svc",pid=1,fd=3))\n'
+        'LISTEN 0 5 [::]:8000 [::]:* users:(("v6svc",pid=2,fd=3))\n'
+    )
+    annotate_with_ss([v4, v6], ss)
+    assert "v4svc" in v4.attributes["process"]
+    assert "v6svc" in v6.attributes["process"]  # the v4 wildcard is not borrowed
+
+
 PROC_NET_TCP6_SAMPLE = """\
   sl  local_address                         remote_address                        st ... uid ... inode
    0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 700 1 0000 100 0 0 10 0

@@ -18,9 +18,10 @@ Each release is also published to
 ### Fixed
 
 - Listener process attribution (`ss -tlnpH`) now matches on the normalised
-  `(address, port)`, not the port alone, so two listeners on the same port but
-  different addresses no longer both get the first one's process name. The
-  lookup is also an index now (O(listeners + rows)). Reported via a
+  `(family, address, port)`, not the port alone, so two listeners on the same
+  port but different addresses - or on the same port but different address
+  families (`0.0.0.0` vs `[::]`) - no longer both get the first one's process
+  name. The lookup is also an index now (O(listeners + rows)). Reported via a
   Codex-assisted review.
 
 ### Changed

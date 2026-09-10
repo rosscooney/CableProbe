@@ -248,36 +248,51 @@ def ephemeral_port_min(path: str = PROC_IP_LOCAL_PORT_RANGE) -> int:
 _WILDCARD_HOSTS = {"*", "0.0.0.0", "::", "[::]", ""}
 
 
-def _norm_endpoint(text: str) -> tuple[str, str]:
-    """``addr:port`` -> ``(canonical addr, port)``; wildcards collapse to ``*``."""
+def _norm_endpoint(text: str) -> tuple[int, str, str]:
+    """``addr:port`` -> ``(family, canonical addr, port)``.
+
+    ``family`` is 4 or 6 (0 = an unqualified ``*``, matching either);
+    wildcard addresses collapse to ``*``.
+    """
 
     if text.startswith("["):  # [ipv6]:port
         host, _, port = text[1:].partition("]:")
+        family = 6
     else:
         host, _, port = text.rpartition(":")
-    return ("*" if host in _WILDCARD_HOSTS else host, port)
+        family = 6 if ":" in host else (0 if host == "*" else 4)
+    return (family, "*" if host in _WILDCARD_HOSTS else host, port)
 
 
 def annotate_with_ss(observations: list[Observation], ss_output: str) -> None:
     """Best-effort: fill ``process`` from ``ss -tlnpH`` output.
 
-    Matched on the normalised ``(address, port)`` - not the port alone, so two
-    listeners on the same port but different addresses get their own process.
+    Matched on the normalised ``(family, address, port)`` - not the port alone -
+    so two listeners on the same port but different addresses (or different
+    address families) each get their own process.
     """
 
-    by_addr_port: dict[tuple[str, str], str] = {}
+    by_key: dict[tuple[int, str, str], str] = {}
     for line in ss_output.splitlines():
         fields = line.split()
         if len(fields) < 4 or "users:((" not in line:
             continue
         process = line.split("users:((", 1)[1].rstrip(")")
-        by_addr_port[_norm_endpoint(fields[3])] = process
+        by_key[_norm_endpoint(fields[3])] = process
+
     for obs in observations:
-        key = _norm_endpoint(obs.attributes.get("endpoint", ""))
-        proc = by_addr_port.get(key)
-        if not proc and key[0] != "*":
-            # a wildcard listener also serves this specific address
-            proc = by_addr_port.get(("*", key[1]))
+        fam, host, port = _norm_endpoint(obs.attributes.get("endpoint", ""))
+        if obs.attributes.get("protocol") == "tcp6":
+            fam = 6
+        elif obs.attributes.get("protocol") == "tcp":
+            fam = 4
+        proc = (
+            by_key.get((fam, host, port))
+            or (by_key.get((0, host, port)) if fam else None)
+            # a same-family wildcard listener also serves this specific address
+            or (by_key.get((fam, "*", port)) if host != "*" else None)
+            or (by_key.get((0, "*", port)) if host != "*" else None)
+        )
         if proc:
             obs.attributes["process"] = proc
 
