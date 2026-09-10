@@ -73,6 +73,34 @@ def test_change_at_test_start_reverted_by_test_end_is_still_recorded():
     assert d["persist:/etc/hosts"].first_seen_phase == PHASE_TEST
 
 
+def test_a_blatant_start_state_change_is_kept_alongside_the_lasting_one():
+    from datetime import datetime, timezone
+
+    from cableprobe.models import PHASE_BASELINE, PHASE_POST_TEST, PHASE_TEST
+    from cableprobe.analysis import analyse
+    from tests.conftest import phase
+
+    a = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="AAA")
+    blatant = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="BBB")
+    subtle = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="CCC")
+
+    phases = {
+        PHASE_BASELINE: phase(PHASE_BASELINE, [a], [a]),
+        # BBB at test-start, walked back to a different lasting value CCC
+        PHASE_TEST: phase(PHASE_TEST, [blatant], [subtle], offset_minutes=2),
+        PHASE_POST_TEST: phase(PHASE_POST_TEST, [subtle], [subtle], offset_minutes=4),
+    }
+    all_deltas = [d for d in analyse(phases) if d.identity == "persist:/etc/hosts"]
+    afters = {
+        c.after
+        for d in all_deltas
+        for c in d.attribute_changes
+        if c.key == "sha256"
+    }
+    assert "BBB" in afters  # the blatant intermediate state is not discarded
+    assert "CCC" in afters  # the lasting change too
+
+
 def test_plug_and_vanish_during_post_test_is_transient(phase_builder):
     from cableprobe.models import PHASE_POST_TEST
 

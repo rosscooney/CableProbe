@@ -243,6 +243,17 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
     return deltas
 
 
+def _change_signature(change: str, attribute_changes: list[AttributeChange]) -> tuple:
+    """Identify a *transition* - so a boundary comparison is only skipped when
+    an exactly-equal change is already recorded, not merely another change for
+    the same device."""
+
+    return (
+        change,
+        tuple(sorted((c.key, repr(c.before), repr(c.after)) for c in attribute_changes)),
+    )
+
+
 def _boundary_deltas(
     deltas: list[Delta],
     before_idx: dict[tuple[str, str], Observation],
@@ -254,15 +265,29 @@ def _boundary_deltas(
     """Compare two adjacent snapshots and record changes the end-snapshot pass
     could not see (a change made and undone within the phase).
 
-    A key already covered for ``phase`` is skipped so the four boundary passes
-    and the main comparison do not pile up on the same device.
+    De-duplication is per *transition*: an identical change already recorded for
+    this device+phase is skipped, but a different one - e.g. a blatant tamper at
+    test-start that was partly walked back by test-end - is still recorded.
     """
 
-    covered = {(d.kind, d.identity) for d in deltas if d.first_seen_phase == phase}
+    seen: dict[tuple[str, str], set[tuple]] = {}
+    for d in deltas:
+        if d.first_seen_phase == phase:
+            seen.setdefault((d.kind, d.identity), set()).add(
+                _change_signature(d.change, d.attribute_changes)
+            )
+
     absent = {PHASE_BASELINE: False, PHASE_TEST: False, PHASE_POST_TEST: False}
+
+    def _record(delta: Delta) -> None:
+        sig = _change_signature(delta.change, delta.attribute_changes)
+        bucket = seen.setdefault((delta.kind, delta.identity), set())
+        if sig in bucket:
+            return
+        bucket.add(sig)
+        deltas.append(delta)
+
     for key in sorted(set(before_idx) | set(after_idx)):
-        if key in covered:
-            continue
         kind, identity = key
         b = before_idx.get(key)
         a = after_idx.get(key)
@@ -272,7 +297,7 @@ def _boundary_deltas(
         if b is not None and a is not None:
             changes = _diff_attributes(b.attributes, a.attributes)
             if changes:
-                deltas.append(
+                _record(
                     Delta(
                         change="modified",
                         kind=kind,
@@ -285,9 +310,8 @@ def _boundary_deltas(
                         related_events=events_for(kind, identity),
                     )
                 )
-                covered.add(key)
         elif a is not None and not lasted:  # appeared then reverted within phase
-            deltas.append(
+            _record(
                 Delta(
                     change="appeared",
                     kind=kind,
@@ -301,9 +325,8 @@ def _boundary_deltas(
                     related_events=events_for(kind, identity),
                 )
             )
-            covered.add(key)
         elif b is not None and not lasted:  # vanished then came back within phase
-            deltas.append(
+            _record(
                 Delta(
                     change="disappeared",
                     kind=kind,
@@ -317,7 +340,6 @@ def _boundary_deltas(
                     related_events=events_for(kind, identity),
                 )
             )
-            covered.add(key)
 
 
 def _transient_deltas(
