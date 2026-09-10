@@ -240,6 +240,10 @@ class UdevMonitorProbe(Probe):
         with self._lock:
             events = list(self._events)
             self._events.clear()
+        return events
+
+    def dropped_events(self) -> int:
+        with self._lock:
             dropped = self._dropped
             self._dropped = 0
         if dropped:
@@ -249,7 +253,7 @@ class UdevMonitorProbe(Probe):
                 dropped,
                 self.MAX_BUFFERED_EVENTS,
             )
-        return events
+        return dropped
 
     def snapshot(self) -> list[Observation]:
         # This probe is event-driven; it contributes no snapshot observations.

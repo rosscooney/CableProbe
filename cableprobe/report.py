@@ -176,21 +176,24 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
         for warning in meta.probe_warnings:
             console.print(f"  - {_rich_escape(str(warning))}")
 
-    if meta.probe_snapshot_errors:
+    if report.summary.get("coverage") == "partial":
+        gaps = report.summary.get("coverage_gaps") or {}
         console.print(
-            f"[bold red]⚠ Coverage incomplete: {len(meta.probe_snapshot_errors)} "
-            "probe(s) failed while observing — a clean result is not "
+            "[bold red]⚠ Coverage incomplete — a clean result is not "
             "conclusive[/bold red]"
         )
+        for name in gaps.get("probes_failed_to_start", []):
+            console.print(f"  [red]- {_rich_escape(str(name))}: failed to start[/red]")
         for name, detail in sorted(meta.probe_snapshot_errors.items()):
             console.print(f"  [red]- {_rich_escape(name)}: {_rich_escape(str(detail))}[/red]")
-
-    dropped = int(report.summary.get("events_dropped") or 0)
-    if dropped:
-        console.print(
-            f"[yellow]⚠ Event storm: {dropped} event(s) dropped past the per-phase "
-            "budget — the event list is incomplete[/yellow]"
-        )
+        dropped = int(report.summary.get("events_dropped") or 0)
+        if dropped:
+            console.print(f"  [red]- {dropped} event(s) dropped past the buffer[/red]")
+        for path in gaps.get("persistence_unreadable", []):
+            console.print(
+                f"  [red]- persistence: {_rich_escape(str(path))} is not a "
+                "fingerprintable file[/red]"
+            )
 
     _render_delta_table(console, report.deltas)
     _render_findings(console, report.findings)
@@ -290,18 +293,20 @@ def _plain_summary(report: SessionReport) -> list[str]:
         lines.append(f"  skipped:  {names} (interface not present on this host)")
     for warning in meta.probe_warnings:
         lines.append(f"  warning:  {warning}")
-    if meta.probe_snapshot_errors:
+    if report.summary.get("coverage") == "partial":
+        gaps = report.summary.get("coverage_gaps") or {}
         lines.append(
-            f"  !! COVERAGE INCOMPLETE: {len(meta.probe_snapshot_errors)} probe(s) "
-            "failed while observing - a clean result is not conclusive"
+            "  !! COVERAGE INCOMPLETE - a clean result is not conclusive"
         )
+        for name in gaps.get("probes_failed_to_start", []):
+            lines.append(f"       - {name}: failed to start")
         for name, detail in sorted(meta.probe_snapshot_errors.items()):
             lines.append(f"       - {name}: {detail}")
-    dropped = int(report.summary.get("events_dropped") or 0)
-    if dropped:
-        lines.append(
-            f"  !! EVENT STORM: {dropped} event(s) dropped past the per-phase budget"
-        )
+        dropped = int(report.summary.get("events_dropped") or 0)
+        if dropped:
+            lines.append(f"       - {dropped} event(s) dropped past the buffer")
+        for path in gaps.get("persistence_unreadable", []):
+            lines.append(f"       - persistence: {path} is not a fingerprintable file")
 
     lines.append("")
     lines.append(f"Phase differences: {len(report.deltas)}")

@@ -14,6 +14,7 @@ from cableprobe.analysis import analyse, build_summary
 from cableprobe.config import Config
 from cableprobe.logging_config import get_logger
 from cableprobe.models import (
+    KIND_PERSISTENCE_ITEM,
     KIND_PROCESS,
     PHASE_BASELINE,
     PHASE_ORDER,
@@ -86,6 +87,23 @@ def _snapshot_error_summary(phases: dict[str, PhaseObservation]) -> dict[str, st
         name: f"{n}/{total} snapshots failed - {last_msg[name]}"
         for name, n in sorted(fails.items())
     }
+
+
+def _incomplete_persistence(phases: dict[str, PhaseObservation]) -> list[str]:
+    """Persistence items that existed at the end of the session but could not be
+    fully fingerprinted (a FIFO, a symlink to a special file, > the hash cap) -
+    a standing monitoring blind spot, not just a change."""
+
+    out: set[str] = set()
+    end = phases.get(PHASE_POST_TEST) or phases.get(PHASE_TEST)
+    if end is None:
+        return []
+    for obs in end.end_snapshot.observations:
+        if obs.kind == KIND_PERSISTENCE_ITEM and obs.attributes.get(
+            "fingerprint_incomplete"
+        ):
+            out.add(str(obs.attributes.get("path") or obs.identity))
+    return sorted(out)
 
 
 def _cmdline_secret_was_masked(phases: dict[str, PhaseObservation]) -> bool:
@@ -218,6 +236,13 @@ async def _observe_phase(
     end_snapshot = await _capture(probes, quarantine)
     _collect(_drain(probes))
 
+    # events a probe discarded itself (its own buffer overflowed) also count
+    for probe in probes:
+        try:
+            dropped += probe.dropped_events()
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover
+            log.debug("probe %s dropped_events failed: %s", probe.name, exc)
+
     if dropped:
         log.warning(
             "phase %s: event budget (%d) exceeded, dropped %d event(s)",
@@ -348,6 +373,25 @@ async def run_session(
     findings = consolidate(raw) + implant_findings
     findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 0), reverse=True)
     summary = build_summary(phases, deltas, findings)
+
+    # Coverage is "partial" if *anything* left a gap this session: a probe that
+    # failed to start, a probe that errored while observing, an event storm that
+    # overran a buffer, or a persistence item we could not fully fingerprint.
+    start_failures = [w for w in warnings if "failed to start" in w]
+    incomplete_persist = _incomplete_persistence(phases)
+    if (
+        start_failures
+        or summary.get("snapshot_error_count")
+        or summary.get("events_dropped")
+        or incomplete_persist
+    ):
+        summary["coverage"] = "partial"
+    summary["coverage_gaps"] = {
+        "probes_failed_to_start": [w.split(":", 1)[0].strip() for w in start_failures],
+        "probes_errored": sorted(_snapshot_error_summary(phases)),
+        "events_dropped": summary.get("events_dropped", 0),
+        "persistence_unreadable": incomplete_persist,
+    }
 
     # Only flag the report when redaction actually masked something in a
     # captured command line - that is when "review before sharing" is

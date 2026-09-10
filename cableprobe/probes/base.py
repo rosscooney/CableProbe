@@ -79,6 +79,12 @@ class Probe(abc.ABC):
 
         return []
 
+    def dropped_events(self) -> int:
+        """Return and reset the count of events this probe had to discard
+        (its own buffer overflowed). Default: nothing is ever dropped."""
+
+        return 0
+
 
 # --------------------------------------------------------------------------
 # subprocess helpers

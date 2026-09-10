@@ -269,6 +269,33 @@ async def test_timed_out_probe_is_quarantined_not_rescheduled(fast_config, monke
     assert calls["n"] <= 2
 
 
+async def test_a_start_failure_alone_makes_coverage_partial(fast_config, monkeypatch):
+    from cableprobe.report import exit_code_for
+
+    kb = Observation(kind=KIND_INPUT_DEVICE, identity="input:x", label="kb")
+    quiet = FakeProbe(fast_config, 0.0, [[]] * 6)
+
+    class WontStart(Probe):
+        name = "udev_monitor"
+
+        async def start(self):
+            raise RuntimeError("no netlink")
+
+        def snapshot(self):
+            return []
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [WontStart(fast_config, 0.0), quiet],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert report.summary["coverage"] == "partial"
+    assert "udev_monitor" in report.summary["coverage_gaps"]["probes_failed_to_start"]
+    assert exit_code_for(report) == 5
+
+
 async def test_snapshot_failures_flag_incomplete_coverage(fast_config, monkeypatch):
     from cableprobe.advice import build_advice
     from cableprobe.report import exit_code_for

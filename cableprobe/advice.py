@@ -182,6 +182,7 @@ def build_advice(report: SessionReport) -> Advice:
     persisted = int(report.summary.get("persisted_after_disconnect_count") or 0)
     cable_changes = int(report.summary.get("cable_correlated_change_count") or 0)
     failed_probes = _failed_probes(report)
+    partial_coverage = report.summary.get("coverage") == "partial"
 
     if severity == "critical":
         headline = "Treat this cable as hostile hardware."
@@ -211,13 +212,15 @@ def build_advice(report: SessionReport) -> Advice:
             "background activity. Skim the findings; if anything doesn't match "
             "what you plugged in, re-test.",
         ]
-    elif failed_probes:
+    elif failed_probes or partial_coverage:
         headline = "Coverage was incomplete — this result is not conclusive."
         verdict = [
-            "Some monitoring failed to run this session, so CableProbe was not "
-            "watching everything it normally would. A quiet result here does not "
-            "mean nothing happened. Fix the failures below (often: run as root, "
-            "or install a missing tool) and test again.",
+            "Some monitoring did not run to completion this session (a probe "
+            "failed, an event storm overran a buffer, or a watched file could "
+            "not be read), so CableProbe was not watching everything it "
+            "normally would. A quiet result here does not mean nothing "
+            "happened. Fix the gaps below (often: run as root, or install a "
+            "missing tool) and test again.",
         ]
     else:  # info / none
         headline = "CableProbe did not observe anything notable this session."
@@ -230,14 +233,18 @@ def build_advice(report: SessionReport) -> Advice:
 
     body: list[str] = list(verdict)
 
-    if failed_probes:
-        body.append("")
+    if failed_probes or partial_coverage:
+        gaps = report.summary.get("coverage_gaps") or {}
         detail = report.metadata.probe_snapshot_errors
-        body.append(
-            f"Monitoring that did not run ({len(failed_probes)} probe(s)):"
-        )
-        for name in failed_probes:
-            body.append(f"- {name}: {detail.get(name, 'failed to start')}")
+        lines = [f"- {n}: {detail.get(n, 'failed to start')}" for n in failed_probes]
+        if int(report.summary.get("events_dropped") or 0):
+            lines.append(f"- {report.summary['events_dropped']} event(s) dropped")
+        for path in gaps.get("persistence_unreadable", []):
+            lines.append(f"- {path} could not be fingerprinted")
+        if lines:
+            body.append("")
+            body.append("Gaps in this session's monitoring:")
+            body.extend(lines)
 
     themes = _themes_present(report)
     if themes:
@@ -267,6 +274,6 @@ def build_advice(report: SessionReport) -> Advice:
         "the saved JSON report has the raw evidence for a follow-up."
     )
     # incomplete coverage must not render as a green "all clear"
-    if failed_probes and severity in ("none", "info"):
+    if (failed_probes or partial_coverage) and severity in ("none", "info"):
         severity = "low"
     return Advice(headline=headline, severity=severity, body=body)

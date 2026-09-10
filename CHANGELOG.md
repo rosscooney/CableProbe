@@ -29,6 +29,13 @@ Each release is also published to
 
 ### Changed
 
+- `summary.coverage` (and the `--fail-on-findings` exit code) now reflects
+  *every* kind of gap: a probe that failed to start, a probe that errored while
+  observing, an event storm that overran a buffer (including udev's own
+  internal queue, now surfaced via `Probe.dropped_events()`), and a persistence
+  item left unreadable. `summary.coverage_gaps` itemises them, and the "coverage
+  incomplete" block in the summary and advice lists each. Reported via a
+  Codex-assisted review.
 - A probe whose snapshot exceeds the 45 s deadline is now **quarantined** for
   the rest of the session instead of being re-scheduled every phase (its worker
   thread can't be cancelled, so repeated calls would pile up stuck threads and
