@@ -47,6 +47,15 @@ Each release is also published to
   could not see - is now recorded as a delta. Reported via a Codex-assisted
   review.
 
+### Fixed
+
+- Two identical USB devices - or one cloning a trusted device's VID/PID/serial
+  - no longer collapse into a single observation. The `usb`, `usb_descriptors`
+  and `udev_monitor` probes now key a device on its bus-port topology
+  (`1-1.2`), keeping the device-supplied VID/PID/serial as attributes, so
+  inventory and event correlation stay per-device. Reported via a Codex-
+  assisted review.
+
 ### Changed
 
 - The `listeners` probe now records **every** listening socket, not only those

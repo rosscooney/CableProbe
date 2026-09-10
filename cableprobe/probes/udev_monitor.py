@@ -112,6 +112,11 @@ def _device_identity(device) -> str:
     model = props.get("ID_MODEL_ID")
     serial = props.get("ID_SERIAL_SHORT")
     if vendor and model:
+        # match the usb probe: key on the bus-port topology so events correlate
+        # with the snapshot delta for the same physical device
+        topology = getattr(device, "sys_name", None)
+        if topology:
+            return f"usb:{topology}"
         base = f"usb:{vendor}:{model}"
         if serial:
             base += f":{serial}"

@@ -166,12 +166,9 @@ def _endpoint_types(iface: Path) -> list[str]:
 
 
 def _device_identity(record: dict) -> str:
-    ident = f"{record['vendor_id']}:{record['product_id']}"
-    if record.get("serial"):
-        ident += f":{record['serial']}"
-    else:
-        ident += f":{record['sysname']}"
-    return ident
+    # Key on the sysfs bus-port name (topology): a spoofed serial or two
+    # identical devices must not collapse to one identity.
+    return record.get("sysname") or f"{record['vendor_id']}:{record['product_id']}"
 
 
 def _device_label(record: dict) -> str:

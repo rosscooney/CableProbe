@@ -231,10 +231,10 @@ def test_descriptor_observations_flag_interfaces(tmp_path):
     assert kinds == {KIND_USB_INTERFACE, "usb_descriptor"}
     # root hub interfaces are skipped
     assert not any("usb1" in o.identity for o in obs)
-    hid = next(o for o in obs if o.identity == "usbif:dead:beef:IMPLANT01:00")
+    hid = next(o for o in obs if o.identity == "usbif:1-1.2:00")
     assert hid.attributes["interface_class_name"] == "hid"
     assert sorted(hid.attributes["device_interface_classes"]) == ["hid", "vendor-specific"]
-    desc = next(o for o in obs if o.identity == "usbdesc:dead:beef:IMPLANT01")
+    desc = next(o for o in obs if o.identity == "usbdesc:1-1.2")
     assert desc.attributes["num_interfaces"] == "2"
 
 

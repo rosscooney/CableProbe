@@ -24,10 +24,19 @@ Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 def test_parse_lsusb():
     out = parse_lsusb(LSUSB_SAMPLE)
     assert len(out) == 3
-    logi = next(o for o in out if o.identity == "usb:046d:c52b")
+    logi = next(o for o in out if o.attributes["vendor_id"] == "046d")
     assert logi.kind == KIND_USB_DEVICE
     assert "Logitech" in logi.label
-    assert logi.attributes["vendor_id"] == "046d"
+    assert logi.identity == "usb:bus001.dev004"  # keyed on the slot, not vid:pid
+
+
+def test_parse_lsusb_keeps_identical_devices_separate():
+    sample = (
+        "Bus 001 Device 004: ID 046d:c31c Dell Keyboard\n"
+        "Bus 001 Device 007: ID 046d:c31c Dell Keyboard\n"
+    )
+    out = parse_lsusb(sample)
+    assert len({o.identity for o in out}) == 2  # two rows, two observations
 
 
 def test_interface_classes_decode():

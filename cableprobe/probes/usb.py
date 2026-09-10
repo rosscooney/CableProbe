@@ -58,8 +58,11 @@ def parse_lsusb(text: str) -> list[Observation]:
             continue
         vid = match.group("vid").lower()
         pid = match.group("pid").lower()
+        bus, dev = match.group("bus"), match.group("dev")
         name = (match.group("name") or "").strip()
-        identity = f"usb:{vid}:{pid}"
+        # Key on the bus/device slot, not vid:pid: two identical devices - or a
+        # device cloning a trusted one's IDs - must not overwrite each other.
+        identity = f"usb:bus{bus}.dev{dev}"
         label = name or f"USB device {vid}:{pid}"
         observations.append(
             Observation(
@@ -69,8 +72,8 @@ def parse_lsusb(text: str) -> list[Observation]:
                 attributes={
                     "vendor_id": vid,
                     "product_id": pid,
-                    "bus": match.group("bus"),
-                    "device": match.group("dev"),
+                    "bus": bus,
+                    "device": dev,
                     "description": name,
                     "source": "lsusb",
                 },
@@ -96,9 +99,11 @@ def _observation_from_udev(device) -> Observation:
     vid = (device.get("ID_VENDOR_ID") or "").lower()
     pid = (device.get("ID_MODEL_ID") or "").lower()
     serial = device.get("ID_SERIAL_SHORT")
-    identity = f"usb:{vid}:{pid}"
-    if serial:
-        identity += f":{serial}"
+    # Key on the physical topology (bus-port path, e.g. ``1-1.2``), not the
+    # device-supplied vid:pid:serial - those are spoofable and two identical
+    # devices would otherwise collide in SystemSnapshot.index().
+    topology = getattr(device, "sys_name", None) or device.get("DEVPATH") or ""
+    identity = f"usb:{topology}" if topology else f"usb:{vid}:{pid}:{serial or '?'}"
 
     vendor = device.get("ID_VENDOR_FROM_DATABASE") or device.get("ID_VENDOR")
     model = device.get("ID_MODEL_FROM_DATABASE") or device.get("ID_MODEL")
@@ -106,6 +111,7 @@ def _observation_from_udev(device) -> Observation:
 
     interfaces = _interface_classes(device.get("ID_USB_INTERFACES"))
     attrs = {
+        "topology": topology or None,
         "vendor_id": vid,
         "product_id": pid,
         "serial": serial,
