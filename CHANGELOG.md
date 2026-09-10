@@ -15,6 +15,8 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-10
+
 ### Changed
 
 - Reports no longer carry per-tick `samples` (the full observation set captured
@@ -378,7 +380,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/rosscooney/CableProbe/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/rosscooney/CableProbe/compare/v0.3.10...v0.4.1
 [0.3.10]: https://github.com/rosscooney/CableProbe/compare/v0.3.9...v0.3.10
 [0.3.9]: https://github.com/rosscooney/CableProbe/compare/v0.3.8...v0.3.9
