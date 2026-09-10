@@ -377,6 +377,16 @@ def run(
 
     _guard_output_dir(cfg.output_dir, hard_fail_on_symlink=True)
 
+    unknown = [n for n in cfg.probes.enabled if n not in PROBE_REGISTRY]
+    if unknown:
+        typer.secho(
+            f"error: unknown probe(s) in config: {', '.join(sorted(set(unknown)))}\n"
+            f"  valid names: {', '.join(sorted(PROBE_REGISTRY))}",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     rules_path = rules or cfg.rules_file
     try:
         ruleset = RuleSet.resolve(rules_path)

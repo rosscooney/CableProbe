@@ -263,6 +263,21 @@ def test_reexec_with_sudo_skips_untrusted_launcher(tmp_path, monkeypatch, capsys
     _reexec_with_sudo()  # returns without raising
 
 
+def test_run_rejects_unknown_probe_name(tmp_path):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("probes:\n  enabled: [usb, persistnce]\n")
+    result = runner.invoke(app, ["run", "--auto", "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "unknown probe" in result.output
+
+
+def test_run_rejects_config_typo(tmp_path):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("probes:\n  capture_process_cmdlines: false\n")  # missing 'cmdline'
+    result = runner.invoke(app, ["run", "--auto", "--config", str(cfg)])
+    assert result.exit_code == 2
+
+
 def test_run_rejects_bad_config(tmp_path):
     bad = tmp_path / "c.yaml"
     bad.write_text("session: {test_seconds: -5}\n", encoding="utf-8")

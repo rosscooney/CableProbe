@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- Configuration is now strict throughout: the nested `session:` and `probes:`
+  models reject unknown keys (previously only the top level did), so a typo
+  like `capture_process_cmdlines:` is an error instead of being silently
+  ignored. An unknown name in `probes.enabled` also fails the run rather than
+  being skipped with a log line. Reported via a Codex-assisted review.
+
 ### Fixed
 
 - The known-implant blocklist and the allowlist now match a device seen only

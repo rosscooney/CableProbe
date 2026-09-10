@@ -59,6 +59,8 @@ OPTIONAL_PROBES: list[str] = ["wifi_scan", "power", "connections"]
 class SessionConfig(BaseModel):
     """Timing and interaction settings for a test session."""
 
+    model_config = {"extra": "forbid"}
+
     baseline_seconds: int = 30
     test_seconds: int = 60
     post_test_seconds: int = 30
@@ -88,6 +90,8 @@ class SessionConfig(BaseModel):
 
 
 class ProbeConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
     enabled: list[str] = Field(default_factory=lambda: list(DEFAULT_PROBES))
     #: Kernel-log backend: ``auto`` | ``journalctl`` | ``dmesg``.
     kernel_log_backend: str = "auto"

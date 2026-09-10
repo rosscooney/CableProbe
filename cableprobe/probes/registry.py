@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from cableprobe.config import Config
-from cableprobe.logging_config import get_logger
 from cableprobe.probes.base import Probe
 from cableprobe.probes.block import BlockDeviceProbe
 from cableprobe.probes.connections import ConnectionProbe
@@ -31,8 +30,6 @@ from cableprobe.probes.usb import UsbProbe
 from cableprobe.probes.usb_sysfs import UsbDescriptorProbe, UsbTopologyProbe
 from cableprobe.probes.usbc_pd import UsbcPdProbe
 from cableprobe.probes.wifi_scan import WifiScanProbe
-
-log = get_logger("probe.registry")
 
 _PROBE_CLASSES: tuple[type[Probe], ...] = (
     UdevMonitorProbe,
@@ -65,13 +62,20 @@ PROBE_REGISTRY: dict[str, type[Probe]] = {cls.name: cls for cls in _PROBE_CLASSE
 
 
 def build_probes(config: Config, session_start: float) -> list[Probe]:
-    """Instantiate the probes named in ``config.probes.enabled`` (in order)."""
+    """Instantiate the probes named in ``config.probes.enabled`` (in order).
 
-    probes: list[Probe] = []
-    for name in config.probes.enabled:
-        probe_cls = PROBE_REGISTRY.get(name)
-        if probe_cls is None:
-            log.warning("unknown probe %r in configuration - skipping", name)
-            continue
-        probes.append(probe_cls(config=config, session_start=session_start))
-    return probes
+    An unknown name is a configuration error (a typo silently disables
+    monitoring), so this raises rather than skipping.
+    """
+
+    unknown = [n for n in config.probes.enabled if n not in PROBE_REGISTRY]
+    if unknown:
+        raise ValueError(
+            f"unknown probe(s) in probes.enabled: {', '.join(sorted(set(unknown)))}. "
+            f"Valid probe names: {', '.join(sorted(PROBE_REGISTRY))}"
+        )
+
+    return [
+        PROBE_REGISTRY[name](config=config, session_start=session_start)
+        for name in config.probes.enabled
+    ]
