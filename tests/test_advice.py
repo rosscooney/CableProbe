@@ -7,7 +7,9 @@ from cableprobe.advice import build_advice
 from cableprobe.models import Finding, SessionMetadata, SessionReport
 
 
-def _report(findings: list[Finding], summary: dict) -> SessionReport:
+def _report(
+    findings: list[Finding], summary: dict, *, snapshot_errors: dict | None = None
+) -> SessionReport:
     from datetime import datetime, timezone
 
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -17,6 +19,7 @@ def _report(findings: list[Finding], summary: dict) -> SessionReport:
         started_at=now,
         ended_at=now,
         interactive=True,
+        probe_snapshot_errors=snapshot_errors or {},
     )
     return SessionReport(metadata=meta, phases={}, findings=findings, summary=summary)
 
@@ -30,6 +33,32 @@ def test_clean_session_advice_warns_against_false_confidence():
     assert a.severity == "none"
     body = " ".join(a.body).lower()
     assert "not the same as" in body and "dormant" in body
+
+
+def test_incomplete_coverage_is_not_a_green_all_clear():
+    a = build_advice(
+        _report(
+            [],
+            {"highest_severity": None, "coverage": "partial"},
+            snapshot_errors={"kernel_log": "3/6 snapshots failed - journalctl: timeout"},
+        )
+    )
+    assert a.severity != "none"
+    assert "not conclusive" in a.headline.lower()
+    body = " ".join(a.body).lower()
+    assert "kernel_log" in body and "did not run" in body
+
+
+def test_real_finding_still_wins_headline_but_lists_failed_probes():
+    a = build_advice(
+        _report(
+            [_f("hid-keyboard-appeared-on-connect", "high")],
+            {"highest_severity": "high", "coverage": "partial"},
+            snapshot_errors={"pci": "6/6 snapshots failed - permission denied"},
+        )
+    )
+    assert a.severity == "high"
+    assert any("pci" in line for line in a.body)
 
 
 def test_keyboard_advice_is_high_and_explains_badusb():

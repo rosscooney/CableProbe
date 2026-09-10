@@ -192,6 +192,38 @@ async def test_review_warning_only_when_a_secret_was_masked(fast_config, monkeyp
     assert r3.metadata.probe_warnings == []
 
 
+async def test_snapshot_failures_flag_incomplete_coverage(fast_config, monkeypatch):
+    from cableprobe.advice import build_advice
+    from cableprobe.report import exit_code_for
+
+    quiet = FakeProbe(fast_config, 0.0, [[]] * 6)  # a working probe, no findings
+
+    class Flaky(Probe):
+        name = "flaky"
+
+        def snapshot(self):
+            raise RuntimeError("sysfs went away")
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [Flaky(fast_config, 0.0), quiet],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+
+    assert "flaky" in report.metadata.probe_snapshot_errors
+    assert "sysfs went away" in report.metadata.probe_snapshot_errors["flaky"]
+    assert report.summary["coverage"] == "partial"
+
+    advice = build_advice(report)
+    assert "not conclusive" in advice.headline.lower()
+    assert advice.severity != "none"  # no green all-clear
+    assert any("flaky" in line for line in advice.body)
+
+    assert exit_code_for(report) == 5  # inconclusive, not clean
+
+
 async def test_run_session_all_probes_unavailable(fast_config, monkeypatch):
     class Dead(Probe):
         name = "dead"

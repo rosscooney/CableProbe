@@ -62,6 +62,32 @@ async def _maybe_await(value: Awaitable[None] | None) -> None:
         await value
 
 
+def _snapshot_error_summary(phases: dict[str, PhaseObservation]) -> dict[str, str]:
+    """Per-probe: ``"<n>/<total> snapshots failed - <last message>"``.
+
+    Errors are recorded on each snapshot as ``"<probe>: <exception>"``. A probe
+    in here started fine but then failed to observe, so its part of the picture
+    is missing and a clean result should not be trusted.
+    """
+
+    fails: dict[str, int] = {}
+    last_msg: dict[str, str] = {}
+    total = 0
+    for phase in phases.values():
+        for snap in (phase.start_snapshot, phase.end_snapshot):
+            total += 1
+            for err in snap.errors:
+                name, _, msg = err.partition(":")
+                name = name.strip()
+                fails[name] = fails.get(name, 0) + 1
+                # collapse multi-line tool usage blurbs to one line
+                last_msg[name] = " ".join(msg.split()) or "unknown error"
+    return {
+        name: f"{n}/{total} snapshots failed - {last_msg[name]}"
+        for name, n in sorted(fails.items())
+    }
+
+
 def _cmdline_secret_was_masked(phases: dict[str, PhaseObservation]) -> bool:
     """True if any captured process command line had a value redacted."""
 
@@ -278,6 +304,7 @@ async def run_session(
         probes_used=[p.name for p in probes],
         probes_unavailable=unavailable,
         probe_warnings=warnings,
+        probe_snapshot_errors=_snapshot_error_summary(phases),
     )
 
     return SessionReport(

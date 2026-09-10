@@ -255,11 +255,19 @@ def build_summary(
         and d.kind in PERSISTENCE_KINDS
     ]
 
+    snapshot_error_count = sum(
+        len(snap.errors)
+        for p in phases.values()
+        for snap in (p.start_snapshot, p.end_snapshot)
+    )
+
     return {
         "phase_observation_counts": {
             name: len(p.end_snapshot.observations) for name, p in phases.items()
         },
         "phase_event_counts": {name: len(p.events) for name, p in phases.items()},
+        "snapshot_error_count": snapshot_error_count,
+        "coverage": "partial" if snapshot_error_count else "full",
         "delta_count": len(deltas),
         "deltas_by_change": _count_by(deltas, lambda d: d.change),
         "deltas_by_kind": _count_by(deltas, lambda d: d.kind),

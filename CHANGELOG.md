@@ -15,6 +15,17 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- A session where monitoring failed no longer reports as clean. Per-probe
+  snapshot failures are aggregated into `metadata.probe_snapshot_errors` and
+  `summary.coverage`, shown as a prominent "coverage incomplete" block in both
+  summaries, and the "What this means" box says the result is *not conclusive*
+  (never a green all-clear) when a probe could not observe. `--fail-on-findings`
+  exits `5` for an inconclusive run. `udev_monitor` now fails to start loudly
+  instead of being counted as active while doing nothing. Reported via a
+  Codex-assisted review.
+
 ### Security
 
 - The device allowlist no longer lets one trusted device silence findings

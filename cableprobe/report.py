@@ -169,6 +169,15 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
         for warning in meta.probe_warnings:
             console.print(f"  - {_rich_escape(str(warning))}")
 
+    if meta.probe_snapshot_errors:
+        console.print(
+            f"[bold red]⚠ Coverage incomplete: {len(meta.probe_snapshot_errors)} "
+            "probe(s) failed while observing — a clean result is not "
+            "conclusive[/bold red]"
+        )
+        for name, detail in sorted(meta.probe_snapshot_errors.items()):
+            console.print(f"  [red]- {_rich_escape(name)}: {_rich_escape(str(detail))}[/red]")
+
     _render_delta_table(console, report.deltas)
     _render_findings(console, report.findings)
     _render_advice(console, report)
@@ -267,6 +276,13 @@ def _plain_summary(report: SessionReport) -> list[str]:
         lines.append(f"  skipped:  {names} (interface not present on this host)")
     for warning in meta.probe_warnings:
         lines.append(f"  warning:  {warning}")
+    if meta.probe_snapshot_errors:
+        lines.append(
+            f"  !! COVERAGE INCOMPLETE: {len(meta.probe_snapshot_errors)} probe(s) "
+            "failed while observing - a clean result is not conclusive"
+        )
+        for name, detail in sorted(meta.probe_snapshot_errors.items()):
+            lines.append(f"       - {name}: {detail}")
 
     lines.append("")
     lines.append(f"Phase differences: {len(report.deltas)}")
@@ -311,6 +327,13 @@ SEVERITY_EXIT_CODES = {
     "critical": 30,
 }
 
+#: `--fail-on-findings` exit code when nothing was flagged but some monitoring
+#: failed, so the run is inconclusive rather than clean.
+INCOMPLETE_COVERAGE_EXIT_CODE = 5
+
 
 def exit_code_for(report: SessionReport) -> int:
-    return SEVERITY_EXIT_CODES.get(report.summary.get("highest_severity"), 0)
+    code = SEVERITY_EXIT_CODES.get(report.summary.get("highest_severity"), 0)
+    if code == 0 and report.summary.get("coverage") == "partial":
+        return INCOMPLETE_COVERAGE_EXIT_CODE
+    return code

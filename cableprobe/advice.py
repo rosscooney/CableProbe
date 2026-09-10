@@ -154,10 +154,23 @@ def _themes_present(report: SessionReport) -> list[str]:
     ]
 
 
+def _failed_probes(report: SessionReport) -> list[str]:
+    """Probes that started but could not observe (or failed to start)."""
+
+    failed = set(report.metadata.probe_snapshot_errors)
+    failed |= {
+        w.split(":", 1)[0].strip()
+        for w in report.metadata.probe_warnings
+        if "failed to start" in w
+    }
+    return sorted(failed)
+
+
 def build_advice(report: SessionReport) -> Advice:
     severity = report.summary.get("highest_severity") or "none"
     persisted = int(report.summary.get("persisted_after_disconnect_count") or 0)
     cable_changes = int(report.summary.get("cable_correlated_change_count") or 0)
+    failed_probes = _failed_probes(report)
 
     if severity == "critical":
         headline = "Treat this cable as hostile hardware."
@@ -187,6 +200,14 @@ def build_advice(report: SessionReport) -> Advice:
             "background activity. Skim the findings; if anything doesn't match "
             "what you plugged in, re-test.",
         ]
+    elif failed_probes:
+        headline = "Coverage was incomplete — this result is not conclusive."
+        verdict = [
+            "Some monitoring failed to run this session, so CableProbe was not "
+            "watching everything it normally would. A quiet result here does not "
+            "mean nothing happened. Fix the failures below (often: run as root, "
+            "or install a missing tool) and test again.",
+        ]
     else:  # info / none
         headline = "CableProbe did not observe anything notable this session."
         verdict = [
@@ -197,6 +218,15 @@ def build_advice(report: SessionReport) -> Advice:
         ]
 
     body: list[str] = list(verdict)
+
+    if failed_probes:
+        body.append("")
+        detail = report.metadata.probe_snapshot_errors
+        body.append(
+            f"Monitoring that did not run ({len(failed_probes)} probe(s)):"
+        )
+        for name in failed_probes:
+            body.append(f"- {name}: {detail.get(name, 'failed to start')}")
 
     themes = _themes_present(report)
     if themes:
@@ -225,4 +255,7 @@ def build_advice(report: SessionReport) -> Advice:
         "The table lists every change; the Findings explain why each matters; "
         "the saved JSON report has the raw evidence for a follow-up."
     )
+    # incomplete coverage must not render as a green "all clear"
+    if failed_probes and severity in ("none", "info"):
+        severity = "low"
     return Advice(headline=headline, severity=severity, body=body)

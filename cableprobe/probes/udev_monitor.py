@@ -173,16 +173,16 @@ class UdevMonitorProbe(Probe):
 
     async def start(self) -> None:
         if pyudev is None:
-            log.warning("udev monitor unavailable: pyudev not importable")
-            return
+            raise RuntimeError("pyudev not importable")
         try:
             context = udev_context()
             self._monitor = pyudev.Monitor.from_netlink(context)
             self._monitor.start()
         except Exception as exc:  # noqa: BLE001  # pragma: no cover
-            log.warning("could not start udev monitor: %s", exc)
             self._monitor = None
-            return
+            # let the session mark this probe failed rather than count a dead
+            # monitor as active coverage
+            raise RuntimeError(f"could not start udev monitor: {exc}") from exc
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._run, name="cableprobe-udev-monitor", daemon=True

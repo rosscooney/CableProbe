@@ -178,6 +178,10 @@ class SessionMetadata(BaseModel):
     probes_unavailable: list[str] = Field(default_factory=list)
     #: Probes that were enabled and available but misbehaved (failed to start).
     probe_warnings: list[str] = Field(default_factory=list)
+    #: Probes that started but raised while taking a snapshot, with how many of
+    #: their snapshot attempts failed. A probe in here contributed less than a
+    #: full picture, so a clean result is not conclusive.
+    probe_snapshot_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class SessionReport(BaseModel):

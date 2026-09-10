@@ -982,6 +982,20 @@ def test_udev_event_is_interesting_filters_kernel_internal_subsystems():
     assert event_is_interesting("block", "partition") is False
 
 
+async def test_udev_monitor_start_raises_when_the_monitor_cannot_be_created(monkeypatch):
+    from cableprobe.probes import udev_monitor
+
+    monkeypatch.setattr(udev_monitor, "pyudev", object())  # not None
+    monkeypatch.setattr(
+        udev_monitor, "udev_context", lambda: (_ for _ in ()).throw(OSError("no netlink"))
+    )
+    probe = udev_monitor.UdevMonitorProbe(_CFG, 0.0)
+    with pytest.raises(RuntimeError, match="could not start udev monitor"):
+        await probe.start()
+    # a dead monitor must not look startable
+    assert probe._monitor is None
+
+
 def test_oui_family_groups_locally_administered_bssids():
     from cableprobe.probes.wifi_scan import oui_family
 
