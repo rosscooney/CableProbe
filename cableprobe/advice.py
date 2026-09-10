@@ -239,8 +239,8 @@ def build_advice(report: SessionReport) -> Advice:
         lines = [f"- {n}: {detail.get(n, 'failed to start')}" for n in failed_probes]
         if int(report.summary.get("events_dropped") or 0):
             lines.append(f"- {report.summary['events_dropped']} event(s) dropped")
-        for path in gaps.get("persistence_unreadable", []):
-            lines.append(f"- {path} could not be fingerprinted")
+        for item in gaps.get("incomplete_data", []):
+            lines.append(f"- incomplete monitoring: {item}")
         if lines:
             body.append("")
             body.append("Gaps in this session's monitoring:")

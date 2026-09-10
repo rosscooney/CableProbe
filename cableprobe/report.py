@@ -189,10 +189,9 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
         dropped = int(report.summary.get("events_dropped") or 0)
         if dropped:
             console.print(f"  [red]- {dropped} event(s) dropped past the buffer[/red]")
-        for path in gaps.get("persistence_unreadable", []):
+        for item in gaps.get("incomplete_data", []):
             console.print(
-                f"  [red]- persistence: {_rich_escape(str(path))} is not a "
-                "fingerprintable file[/red]"
+                f"  [red]- incomplete monitoring: {_rich_escape(str(item))}[/red]"
             )
 
     _render_delta_table(console, report.deltas)
@@ -305,8 +304,8 @@ def _plain_summary(report: SessionReport) -> list[str]:
         dropped = int(report.summary.get("events_dropped") or 0)
         if dropped:
             lines.append(f"       - {dropped} event(s) dropped past the buffer")
-        for path in gaps.get("persistence_unreadable", []):
-            lines.append(f"       - persistence: {path} is not a fingerprintable file")
+        for item in gaps.get("incomplete_data", []):
+            lines.append(f"       - incomplete monitoring: {item}")
 
     lines.append("")
     lines.append(f"Phase differences: {len(report.deltas)}")

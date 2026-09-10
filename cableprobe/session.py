@@ -15,7 +15,6 @@ from cableprobe.analysis import analyse, build_summary
 from cableprobe.config import Config
 from cableprobe.logging_config import get_logger
 from cableprobe.models import (
-    KIND_PERSISTENCE_ITEM,
     KIND_PROCESS,
     PHASE_BASELINE,
     PHASE_ORDER,
@@ -90,19 +89,19 @@ def _snapshot_error_summary(phases: dict[str, PhaseObservation]) -> dict[str, st
     }
 
 
-def _incomplete_persistence(phases: dict[str, PhaseObservation]) -> list[str]:
-    """Persistence items that at *any* snapshot this session existed but could
-    not be fully fingerprinted (a FIFO, a symlink to a special file, an
-    unreadable file, > the hash cap) - a standing monitoring blind spot."""
+def _incomplete_monitoring(phases: dict[str, PhaseObservation]) -> list[str]:
+    """Observations at *any* snapshot this session that a probe flagged as a
+    standing blind spot - an unreadable persistence file, a truncated kernel
+    log, ... (``monitoring_incomplete`` / ``fingerprint_incomplete``)."""
 
     out: set[str] = set()
     for phase in phases.values():
         for snap in (phase.start_snapshot, phase.end_snapshot):
             for obs in snap.observations:
-                if obs.kind == KIND_PERSISTENCE_ITEM and obs.attributes.get(
+                if obs.attributes.get("monitoring_incomplete") or obs.attributes.get(
                     "fingerprint_incomplete"
                 ):
-                    out.add(str(obs.attributes.get("path") or obs.identity))
+                    out.add(str(obs.attributes.get("path") or obs.label or obs.identity))
     return sorted(out)
 
 
@@ -414,21 +413,22 @@ async def run_session(
 
     # Coverage is "partial" if *anything* left a gap this session: a probe that
     # failed to start, a probe that errored while observing, an event storm that
-    # overran a buffer, or a persistence item we could not fully fingerprint.
+    # overran a buffer, or a probe that flagged its own data as incomplete
+    # (unreadable persistence file, truncated kernel log, ...).
     start_failures = [w for w in warnings if "failed to start" in w]
-    incomplete_persist = _incomplete_persistence(phases)
+    incomplete = _incomplete_monitoring(phases)
     if (
         start_failures
         or summary.get("snapshot_error_count")
         or summary.get("events_dropped")
-        or incomplete_persist
+        or incomplete
     ):
         summary["coverage"] = "partial"
     summary["coverage_gaps"] = {
         "probes_failed_to_start": [w.split(":", 1)[0].strip() for w in start_failures],
         "probes_errored": sorted(_snapshot_error_summary(phases)),
         "events_dropped": summary.get("events_dropped", 0),
-        "persistence_unreadable": incomplete_persist,
+        "incomplete_data": incomplete,
     }
 
     # Only flag the report when redaction actually masked something in a

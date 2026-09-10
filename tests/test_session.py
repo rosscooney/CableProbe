@@ -296,6 +296,28 @@ async def test_a_start_failure_alone_makes_coverage_partial(fast_config, monkeyp
     assert exit_code_for(report) == 5
 
 
+async def test_probe_reported_incompleteness_makes_coverage_partial(fast_config, monkeypatch):
+    incomplete = Observation(
+        kind="kernel_message",
+        identity="kernel-log:incomplete",
+        label="kernel log truncated",
+        attributes={"monitoring_incomplete": True},
+    )
+
+    class Trunc(FakeProbe):
+        name = "kernel_log"
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [Trunc(fast_config, 0.0, [[incomplete]] * 6)],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert report.summary["coverage"] == "partial"
+    assert report.summary["coverage_gaps"]["incomplete_data"]
+
+
 async def test_snapshot_failures_flag_incomplete_coverage(fast_config, monkeypatch):
     from cableprobe.advice import build_advice
     from cableprobe.report import exit_code_for

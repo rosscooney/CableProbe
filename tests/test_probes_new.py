@@ -1138,14 +1138,16 @@ async def test_udev_monitor_start_raises_when_the_monitor_cannot_be_created(monk
 def test_run_command_caps_stdout(monkeypatch):
     import cableprobe.probes.base as base
 
-    monkeypatch.setattr(base, "MAX_COMMAND_OUTPUT_BYTES", 200)
+    monkeypatch.setattr(base, "MAX_COMMAND_OUTPUT_BYTES", 100_000)
     code, out, err = base.run_command(
-        ["python3", "-c", "print('LINE\\n' * 100000)"], timeout=10.0
+        ["python3", "-c", "import sys\nfor i in range(400000): sys.stdout.write(f'line {i}\\n')"],
+        timeout=20.0,
     )
     assert code == 0
-    assert len(out.encode()) < 500  # capped, not ~600 KB
-    assert "output truncated" in out
-    assert out.rstrip().endswith("LINE")  # kept whole trailing lines
+    assert out.truncated is True
+    assert len(out.encode()) < 300_000  # ~3 MB of output, bounded near the cap
+    assert "earlier output dropped" in out
+    assert out.rstrip().endswith("399999")  # newest lines kept
 
 
 def test_run_command_missing_binary():
@@ -1153,6 +1155,24 @@ def test_run_command_missing_binary():
 
     code, out, err = run_command(["definitely-not-a-real-binary-xyz"])
     assert code == -1 and "not found" in err
+
+
+def test_kernel_log_flags_truncated_output_as_incomplete(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+    from cableprobe.probes.base import Captured
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    truncated = Captured("2026-01-01 host kernel: usb 1-1: new device\n")
+    truncated.truncated = True
+    monkeypatch.setattr(kl, "run_command", lambda *a, **k: (0, truncated, ""))
+
+    obs = probe.snapshot()
+    assert any(
+        o.identity == "kernel-log:incomplete"
+        and o.attributes.get("monitoring_incomplete")
+        for o in obs
+    )
 
 
 def test_oui_family_groups_locally_administered_bssids():

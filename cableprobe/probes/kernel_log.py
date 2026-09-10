@@ -146,9 +146,18 @@ class KernelLogProbe(Probe):
         )
         return base + list(self.config.probes.kernel_log_keywords)
 
+    def _incomplete_marker(self, reason: str) -> Observation:
+        return Observation(
+            kind=KIND_KERNEL_MESSAGE,
+            identity="kernel-log:incomplete",
+            label=f"kernel log capture was incomplete ({reason})",
+            attributes={"monitoring_incomplete": True, "reason": reason},
+        )
+
     def snapshot(self) -> list[Observation]:
         backend = self._backend()
         since = datetime.fromtimestamp(self.session_start, tz=timezone.utc)
+        lines_arg = str(_MAX_KERNEL_LINES)
 
         if backend == "journalctl":
             code, out, err = run_command(
@@ -159,7 +168,7 @@ class KernelLogProbe(Probe):
                     "-o",
                     "short-iso",
                     "--lines",
-                    str(_MAX_KERNEL_LINES),  # hard cap on a session-storming host
+                    lines_arg,  # hard cap on a session-storming host
                     "--since",
                     since.astimezone().strftime("%Y-%m-%d %H:%M:%S"),
                 ],
@@ -167,7 +176,10 @@ class KernelLogProbe(Probe):
             )
             if code != 0:
                 raise RuntimeError(err.strip() or "journalctl failed")
-            return filter_kernel_lines(out.splitlines(), self._keywords())
+            obs = filter_kernel_lines(out.splitlines(), self._keywords())
+            if getattr(out, "truncated", False) or out.count("\n") >= _MAX_KERNEL_LINES:
+                obs.append(self._incomplete_marker("output hit the size / line cap"))
+            return obs
 
         if backend == "dmesg":
             code, out, err = run_command(["dmesg", "--ctime"], timeout=20.0)
@@ -175,6 +187,9 @@ class KernelLogProbe(Probe):
                 code, out, err = run_command(["dmesg"], timeout=20.0)
             if code != 0:
                 raise RuntimeError(err.strip() or "dmesg failed")
-            return filter_kernel_lines(out.splitlines(), self._keywords())
+            obs = filter_kernel_lines(out.splitlines(), self._keywords())
+            if getattr(out, "truncated", False):
+                obs.append(self._incomplete_marker("dmesg output hit the size cap"))
+            return obs
 
         raise RuntimeError("no kernel log backend available")
