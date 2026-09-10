@@ -239,6 +239,36 @@ async def test_review_warning_only_when_a_secret_was_masked(fast_config, monkeyp
     assert r3.metadata.probe_warnings == []
 
 
+async def test_timed_out_probe_is_quarantined_not_rescheduled(fast_config, monkeypatch):
+    import time as _time
+
+    monkeypatch.setattr("cableprobe.session._SNAPSHOT_TIMEOUT", 0.05)
+
+    calls = {"n": 0}
+
+    class Slow(Probe):
+        name = "slow"
+
+        def snapshot(self):
+            calls["n"] += 1
+            _time.sleep(0.4)  # exceeds the (patched) deadline every time
+            return []
+
+    quiet = FakeProbe(fast_config, 0.0, [[]] * 6)
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [Slow(fast_config, 0.0), quiet],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+
+    assert "slow" in report.metadata.probe_snapshot_errors
+    assert "quarantin" in report.metadata.probe_snapshot_errors["slow"]
+    # 6 snapshots would be taken without quarantine; it should stop after ~1
+    assert calls["n"] <= 2
+
+
 async def test_snapshot_failures_flag_incomplete_coverage(fast_config, monkeypatch):
     from cableprobe.advice import build_advice
     from cableprobe.report import exit_code_for

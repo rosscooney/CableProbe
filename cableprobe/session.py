@@ -120,26 +120,42 @@ _SNAPSHOT_TIMEOUT = 45.0
 _MAX_PHASE_EVENTS = 10_000
 
 
-async def _snapshot_one(probe: Probe) -> tuple[list[Observation], list[str]]:
+async def _snapshot_one(
+    probe: Probe, quarantine: set[str]
+) -> tuple[list[Observation], list[str]]:
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_safe_snapshot, probe), _SNAPSHOT_TIMEOUT
         )
     except (asyncio.TimeoutError, TimeoutError):
+        # The worker thread cannot be cancelled - it keeps running - so once a
+        # probe times out, stop scheduling it: another slow call each phase
+        # would pile up stuck threads and delay the report at shutdown.
+        quarantine.add(probe.name)
         log.warning(
-            "probe %s snapshot exceeded %.0fs - abandoning it for this phase",
+            "probe %s snapshot exceeded %.0fs - quarantined for the rest of the "
+            "session",
             probe.name,
             _SNAPSHOT_TIMEOUT,
         )
-        return [], [f"{probe.name}: snapshot timed out after {_SNAPSHOT_TIMEOUT:.0f}s"]
+        return [], [
+            f"{probe.name}: snapshot timed out after {_SNAPSHOT_TIMEOUT:.0f}s "
+            "(quarantined)"
+        ]
 
 
-async def _capture(probes: list[Probe]) -> SystemSnapshot:
+async def _capture(probes: list[Probe], quarantine: set[str]) -> SystemSnapshot:
     # Probe snapshots block on subprocesses / sysfs; run them off the event loop
     # so enabled probes are actually captured concurrently, each with a deadline.
-    results = await asyncio.gather(*(_snapshot_one(p) for p in probes))
+    already = set(quarantine)  # quarantined before this capture (not by it)
+    to_run = [p for p in probes if p.name not in already]
+    results = await asyncio.gather(*(_snapshot_one(p, quarantine) for p in to_run))
     observations: list[Observation] = []
-    errors: list[str] = []
+    errors: list[str] = [
+        f"{p.name}: skipped (quarantined after an earlier snapshot timeout)"
+        for p in probes
+        if p.name in already
+    ]
     for obs, errs in results:
         observations.extend(obs)
         errors.extend(errs)
@@ -164,9 +180,11 @@ async def _observe_phase(
     *,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_tick: Callable[[str, float, float], None] | None = None,
+    quarantine: set[str] | None = None,
 ) -> PhaseObservation:
+    quarantine = quarantine if quarantine is not None else set()
     started_at = utcnow()
-    start_snapshot = await _capture(probes)
+    start_snapshot = await _capture(probes, quarantine)
 
     events: list[ProbeEvent] = []
     dropped = 0
@@ -197,7 +215,7 @@ async def _observe_phase(
         if on_tick is not None:
             on_tick(phase, elapsed, duration)
 
-    end_snapshot = await _capture(probes)
+    end_snapshot = await _capture(probes, quarantine)
     _collect(_drain(probes))
 
     if dropped:
@@ -298,6 +316,7 @@ async def run_session(
         PHASE_POST_TEST: config.session.post_test_seconds,
     }
 
+    quarantined_probes: set[str] = set()  # probes dropped after a snapshot timeout
     try:
         _drain(probes)
         for phase in PHASE_ORDER:
@@ -310,6 +329,7 @@ async def run_session(
                 phase,
                 float(durations[phase]),
                 config.session.sample_interval_seconds,
+                quarantine=quarantined_probes,
                 sleep=sleep,
                 on_tick=on_tick,
             )

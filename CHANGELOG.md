@@ -29,6 +29,11 @@ Each release is also published to
 
 ### Changed
 
+- A probe whose snapshot exceeds the 45 s deadline is now **quarantined** for
+  the rest of the session instead of being re-scheduled every phase (its worker
+  thread can't be cancelled, so repeated calls would pile up stuck threads and
+  delay the report). The quarantine shows up as incomplete coverage. Reported
+  via a Codex-assisted review.
 - `analyse()` now compares the phase *start* snapshots too, not only the end
   snapshots. A route, DNS or persistence change made on connect (or on
   disconnect) and undone before the phase ends - which `analyse()` previously
