@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- `analyse()` now compares the phase *start* snapshots too, not only the end
+  snapshots. A route, DNS or persistence change made on connect (or on
+  disconnect) and undone before the phase ends - which `analyse()` previously
+  could not see - is now recorded as a delta. Reported via a Codex-assisted
+  review.
+
 ### Fixed
 
 - The `persistence` probe no longer treats a symlinked target as absent (0.4.4

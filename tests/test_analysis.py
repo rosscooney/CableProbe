@@ -51,6 +51,28 @@ def test_modification_only_in_post_test_is_detected(phase_builder):
     assert any(c.key == "sha256" for c in d["persist:/etc/hosts"].attribute_changes)
 
 
+def test_change_at_test_start_reverted_by_test_end_is_still_recorded():
+    from datetime import datetime, timezone
+
+    from cableprobe.models import PHASE_BASELINE, PHASE_POST_TEST, PHASE_TEST
+    from tests.conftest import phase
+
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    unchanged = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="aaa")
+    tampered = obs(KIND_BLOCK_DEVICE, "persist:/etc/hosts", "hosts", sha256="bbb")
+
+    phases = {
+        PHASE_BASELINE: phase(PHASE_BASELINE, [unchanged], [unchanged]),
+        # rewritten on connect, put back before the phase ended
+        PHASE_TEST: phase(PHASE_TEST, [tampered], [unchanged], offset_minutes=2),
+        PHASE_POST_TEST: phase(PHASE_POST_TEST, [unchanged], [unchanged], offset_minutes=4),
+    }
+    d = _by_identity(analyse(phases))
+    assert "persist:/etc/hosts" in d
+    assert d["persist:/etc/hosts"].change == "modified"
+    assert d["persist:/etc/hosts"].first_seen_phase == PHASE_TEST
+
+
 def test_plug_and_vanish_during_post_test_is_transient(phase_builder):
     from cableprobe.models import PHASE_POST_TEST
 

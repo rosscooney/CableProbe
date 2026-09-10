@@ -208,6 +208,30 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
                     )
                 )
 
+    # The end-snapshot comparison above misses anything that changes *and
+    # reverts* between two end snapshots. Also compare the phase start snapshots
+    # so a route / persistence change made on connect (or on disconnect) and
+    # undone before the phase ends is still recorded.
+    present_in_for = {
+        (kind, ident): {
+            PHASE_BASELINE: (kind, ident) in baseline,
+            PHASE_TEST: (kind, ident) in test,
+            PHASE_POST_TEST: (kind, ident) in post,
+        }
+        for kind, ident in keys
+    }
+    test_start = phases[PHASE_TEST].start_snapshot.index()
+    post_start = phases[PHASE_POST_TEST].start_snapshot.index()
+    for before_idx, after_idx, phase, events_for in (
+        (baseline, test_start, PHASE_TEST, test_events_for),
+        (test_start, test, PHASE_TEST, test_events_for),
+        (test, post_start, PHASE_POST_TEST, post_events_for),
+        (post_start, post, PHASE_POST_TEST, post_events_for),
+    ):
+        _boundary_deltas(
+            deltas, before_idx, after_idx, present_in_for, phase, events_for
+        )
+
     deltas.extend(
         _transient_deltas(deltas, baseline, test_by_key, phase=PHASE_TEST)
     )
@@ -217,6 +241,83 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
         )
     )
     return deltas
+
+
+def _boundary_deltas(
+    deltas: list[Delta],
+    before_idx: dict[tuple[str, str], Observation],
+    after_idx: dict[tuple[str, str], Observation],
+    present_in_for: dict[tuple[str, str], dict[str, bool]],
+    phase: str,
+    events_for,
+) -> None:
+    """Compare two adjacent snapshots and record changes the end-snapshot pass
+    could not see (a change made and undone within the phase).
+
+    A key already covered for ``phase`` is skipped so the four boundary passes
+    and the main comparison do not pile up on the same device.
+    """
+
+    covered = {(d.kind, d.identity) for d in deltas if d.first_seen_phase == phase}
+    absent = {PHASE_BASELINE: False, PHASE_TEST: False, PHASE_POST_TEST: False}
+    for key in sorted(set(before_idx) | set(after_idx)):
+        if key in covered:
+            continue
+        kind, identity = key
+        b = before_idx.get(key)
+        a = after_idx.get(key)
+        present_in = present_in_for.get(key, absent)
+        lasted = any(present_in.values())
+
+        if b is not None and a is not None:
+            changes = _diff_attributes(b.attributes, a.attributes)
+            if changes:
+                deltas.append(
+                    Delta(
+                        change="modified",
+                        kind=kind,
+                        identity=identity,
+                        label=a.label,
+                        first_seen_phase=phase,
+                        present_in=present_in,
+                        attributes=a.attributes,
+                        attribute_changes=changes,
+                        related_events=events_for(kind, identity),
+                    )
+                )
+                covered.add(key)
+        elif a is not None and not lasted:  # appeared then reverted within phase
+            deltas.append(
+                Delta(
+                    change="appeared",
+                    kind=kind,
+                    identity=identity,
+                    label=a.label,
+                    first_seen_phase=phase,
+                    present_in=present_in,
+                    reverted_after_disconnect=True,
+                    transient=True,
+                    attributes=a.attributes,
+                    related_events=events_for(kind, identity),
+                )
+            )
+            covered.add(key)
+        elif b is not None and not lasted:  # vanished then came back within phase
+            deltas.append(
+                Delta(
+                    change="disappeared",
+                    kind=kind,
+                    identity=identity,
+                    label=b.label,
+                    first_seen_phase=phase,
+                    present_in=present_in,
+                    reverted_after_disconnect=True,
+                    transient=True,
+                    attributes=b.attributes,
+                    related_events=events_for(kind, identity),
+                )
+            )
+            covered.add(key)
 
 
 def _transient_deltas(
