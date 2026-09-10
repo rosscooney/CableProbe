@@ -160,6 +160,11 @@ def test_loaded_report_cannot_inject_terminal_escapes(tmp_path, phase_builder):
     report.metadata = report.metadata.model_copy(
         update={"session_name": "sess\x1b[2Sion", "probe_warnings": ["w\x1b[3J"]}
     )
+    report.summary = {
+        **report.summary,
+        "coverage": "partial",
+        "coverage_gaps": {"incomplete_data": ["/etc/\x1b[2Jhosts"]},
+    }
     path = write_report(report, tmp_path)
     loaded = load_report(path)
     assert "\x1b" not in loaded.deltas[0].label
@@ -167,6 +172,7 @@ def test_loaded_report_cannot_inject_terminal_escapes(tmp_path, phase_builder):
     assert "\x1b" not in "".join(loaded.findings[0].evidence)
     assert "\x1b" not in loaded.metadata.session_name
     assert "\x1b" not in "".join(loaded.metadata.probe_warnings)
+    assert "\x1b" not in str(loaded.summary)
     assert "\x1b" not in render_summary(loaded, plain=True)
 
 

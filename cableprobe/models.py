@@ -16,7 +16,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from cableprobe.sanitize import IDENTITY_MAX_LEN, clean_attributes, clean_text
+from cableprobe.sanitize import (
+    IDENTITY_MAX_LEN,
+    clean_attributes,
+    clean_deep,
+    clean_text,
+)
 
 #: The only severities CableProbe understands - anything else falls through
 #: severity ranking and the exit code, so it must be rejected at load time.
@@ -255,6 +260,13 @@ class SessionReport(BaseModel):
     deltas: list[Delta] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     summary: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("summary")
+    @classmethod
+    def _clean_summary(cls, value: dict[str, Any]) -> dict[str, Any]:
+        # summary is a free-form dict; a loaded report's strings anywhere in it
+        # reach the plain-text renderer, so scrub the whole structure
+        return clean_deep(value)
 
     def to_json(self, *, indent: int = 2) -> str:
         return self.model_dump_json(indent=indent)

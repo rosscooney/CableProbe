@@ -50,6 +50,20 @@ def clean_scalar(value: Any, *, max_len: int = DEFAULT_MAX_LEN) -> Any:
     return clean_text(value, max_len=max_len)
 
 
+def clean_deep(value: Any, *, max_len: int = DEFAULT_MAX_LEN) -> Any:
+    """Recursively sanitise every string in nested dicts / lists / tuples -
+    for a free-form structure loaded from an untrusted report (the summary)."""
+
+    if isinstance(value, dict):
+        return {
+            clean_text(k, max_len=128): clean_deep(v, max_len=max_len)
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [clean_deep(v, max_len=max_len) for v in value]
+    return clean_text(value, max_len=max_len)
+
+
 def clean_attributes(attributes: dict[str, Any]) -> dict[str, Any]:
     """Sanitise every string value in an attributes mapping (keys included)."""
 
