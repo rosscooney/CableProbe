@@ -208,6 +208,61 @@ def test_link_does_not_escalate_when_target_writable(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
 
 
+def test_trusted_to_run_as_root_rejects_group_or_world_writable(tmp_path):
+    import os
+
+    from cableprobe.cli import _trusted_to_run_as_root
+
+    good = tmp_path / "cableprobe"
+    good.write_text("x")
+    os.chmod(good, 0o755)
+    os.chmod(tmp_path, 0o755)
+    assert _trusted_to_run_as_root(good) is True
+
+    os.chmod(good, 0o757)  # world-writable file
+    assert _trusted_to_run_as_root(good) is False
+
+    os.chmod(good, 0o755)
+    os.chmod(tmp_path, 0o777)  # world-writable parent dir
+    assert _trusted_to_run_as_root(good) is False
+    os.chmod(tmp_path, 0o755)
+
+    assert _trusted_to_run_as_root(tmp_path / "missing") is False
+
+
+def test_link_refuses_untrusted_launcher(tmp_path, monkeypatch):
+    import os
+
+    launcher = tmp_path / "cableprobe"
+    launcher.write_text("x")
+    os.chmod(launcher, 0o777)  # anyone can rewrite it
+    monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: launcher)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+    result = runner.invoke(app, ["link", "--bin-dir", str(tmp_path / "bin")])
+    assert result.exit_code == 2
+    assert "writable by other users" in result.output
+
+
+def test_reexec_with_sudo_skips_untrusted_launcher(tmp_path, monkeypatch, capsys):
+    import os
+
+    from cableprobe.cli import _reexec_with_sudo
+
+    launcher = tmp_path / "cableprobe"
+    launcher.write_text("x")
+    os.chmod(launcher, 0o777)
+    monkeypatch.setattr("cableprobe.cli._launcher_path", lambda: launcher)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    monkeypatch.setattr("cableprobe.cli.shutil.which", lambda _n: "/usr/bin/sudo")
+    monkeypatch.setattr("cableprobe.cli.sys.stdin.isatty", lambda: True)
+
+    def _boom(*a, **k):
+        raise AssertionError("must not exec sudo on an untrusted launcher")
+
+    monkeypatch.setattr("cableprobe.cli.os.execvp", _boom)
+    _reexec_with_sudo()  # returns without raising
+
+
 def test_run_rejects_bad_config(tmp_path):
     bad = tmp_path / "c.yaml"
     bad.write_text("session: {test_seconds: -5}\n", encoding="utf-8")

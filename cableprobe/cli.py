@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -109,8 +110,31 @@ def _launcher_path() -> Path | None:
     candidates.append(Path(shutil.which("cableprobe")) if shutil.which("cableprobe") else None)
     for path in candidates:
         if path is not None and path.is_absolute() and path.exists():
-            return path
+            # resolve symlinks so callers see (and can vet) the real target
+            try:
+                return Path(os.path.realpath(path))
+            except OSError:
+                return path
     return None
+
+
+def _trusted_to_run_as_root(path: Path) -> bool:
+    """True if ``path`` and its directory are writable only by their owner.
+
+    ``_launcher_path()`` can fall back to ``$PATH`` (``shutil.which``), which is
+    the *invoking* user's ``PATH``. Before we ask ``sudo`` to run that file as
+    root - or symlink it onto root's ``PATH`` - make sure a third party could
+    not have swapped it out via a group-/world-writable file or parent dir.
+    """
+
+    try:
+        for target in (path, path.parent):
+            mode = target.stat().st_mode
+            if mode & (stat.S_IWGRP | stat.S_IWOTH):
+                return False
+    except OSError:
+        return False
+    return True
 
 
 def _sudo_hints(subcommand: str) -> list[str]:
@@ -462,6 +486,14 @@ def _reexec_with_sudo() -> None:
     launcher = _launcher_path()
     if launcher is None:
         return
+    if not _trusted_to_run_as_root(launcher):
+        typer.secho(
+            f"not auto-escalating: {launcher} or its directory is writable by "
+            "other users. Re-run as root explicitly if you trust it.",
+            fg="yellow",
+            err=True,
+        )
+        return
     argv = ["sudo", str(launcher), *sys.argv[1:]]
     typer.secho(f"re-running with sudo: {shlex.join(argv)}", fg="bright_black")
     try:
@@ -512,6 +544,16 @@ def link(
     if launcher is None:
         typer.secho(
             "error: could not locate the cableprobe launcher to link.", fg="red", err=True
+        )
+        raise typer.Exit(code=2)
+
+    if not _trusted_to_run_as_root(launcher):
+        typer.secho(
+            f"error: refusing to link {target} -> {launcher}: the launcher or its "
+            "directory is writable by other users, so the link would let them run "
+            "code as root via `sudo cableprobe`.",
+            fg="red",
+            err=True,
         )
         raise typer.Exit(code=2)
 

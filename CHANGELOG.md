@@ -25,6 +25,10 @@ Each release is also published to
   target username (`$SUDO_USER`, or the venv owner) as a real, well-formed
   local account before passing it to `sudo -u`, instead of trusting the
   environment value.
+- Self-escalation (`sudo cableprobe run` re-exec) and `cableprobe link` now
+  resolve the launcher through `realpath` and refuse to run it as root — or
+  symlink it onto root's `PATH` — if the launcher or its directory is
+  group-/world-writable, so a poisoned `PATH` entry can't ride the escalation.
 
 ## [0.4.2] - 2026-09-10
 

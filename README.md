@@ -214,6 +214,12 @@ absolute path (`sudo "$(command -v cableprobe)" check`) or preserve your `PATH`
 of these applies to your install. (`scripts/install.sh`, below, sets the link up
 as part of a from-scratch `/opt` install.)
 
+The self-escalation and `cableprobe link` resolve the launcher through your
+`PATH`. Both refuse to act if the resolved launcher — or the directory holding
+it — is writable by other users, so a poisoned `PATH` entry cannot get code run
+as root that way. On a shared host, install with `pipx` under your own account
+or from `scripts/install.sh` into root-owned `/opt`.
+
 ### Exit codes
 
 `cableprobe run --fail-on-findings` exits `10` / `20` / `30` for the highest
