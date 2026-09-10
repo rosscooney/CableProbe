@@ -230,6 +230,7 @@ class KeystrokeCadenceProbe(Probe):
         open_rdev: set[int] = set()  # device numbers already open (survives re-plug)
         quarantine: dict[int, float] = {}  # st_rdev -> monotonic time to retry
         live_nodes: set[str] = set()  # node names with a currently-open fd
+        node_bucket: dict[str, str] = {}  # node name -> current timing-bucket key
         instance_count: dict[str, int] = {}  # node name -> how many times opened
 
         def _drop(fd: int, *, quarantine_it: bool = False) -> None:
@@ -262,15 +263,16 @@ class KeystrokeCadenceProbe(Probe):
                     open_fds[fd] = (node, rdev)
                     open_rdev.add(rdev)
                     name = Path(node).name
-                    if name not in live_nodes and name in self._timestamps:
-                        # a disconnect/reconnect on this node (even reusing the
-                        # same device number) - a new device instance. Archive
-                        # the finished one so its timing is still reported, but
-                        # never mixed with the new device's.
-                        n = instance_count.get(name, 1)
-                        instance_count[name] = n + 1
-                        with self._lock:
-                            self._timestamps[f"{name}#{n}"] = self._timestamps.pop(name)
+                    if name not in live_nodes:
+                        # a fresh open. If this node already has a bucket it is a
+                        # reconnect (possibly a different device, possibly the
+                        # same one re-enumerating) - the *new* device instance
+                        # gets its own bucket key; the earlier bucket keeps its
+                        # original key so analysis does not see it as newly
+                        # appearing this phase.
+                        n = instance_count.get(name, 0) + 1
+                        instance_count[name] = n
+                        node_bucket[name] = name if n == 1 else f"{name}#{n}"
                     live_nodes.add(name)
 
                 if not open_fds:
@@ -297,9 +299,10 @@ class KeystrokeCadenceProbe(Probe):
                     if not stamps:
                         continue
                     name = Path(open_fds[fd][0]).name
+                    key = node_bucket.get(name, name)
                     with self._lock:
                         bucket = self._timestamps.setdefault(
-                            name, deque(maxlen=MAX_TIMESTAMPS)
+                            key, deque(maxlen=MAX_TIMESTAMPS)
                         )
                         bucket.extend(stamps)
         finally:

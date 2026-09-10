@@ -36,11 +36,13 @@ Each release is also published to
 
 ### Fixed
 
-- `keystroke_cadence` now archives a finished device instance (`eventN#K`)
-  when a `/dev/input/eventN` node is disconnected and reopened - even reusing
-  the same device number - instead of appending the new device's presses to the
-  old one's series (which could dilute an injection burst). Reported via a
-  Codex-assisted review.
+- `keystroke_cadence` keeps each device instance's timing separate when a
+  `/dev/input/eventN` node is disconnected and reopened (even reusing the same
+  device number), instead of appending the new device's presses to the old
+  one's series. The first instance keeps its identity (`event9`); later ones
+  get `event9#2`, `event9#3`, so an archived baseline device is never mistaken
+  by analysis for a new device appearing mid-test. Reported via a Codex-
+  assisted review.
 - The `keystroke_cadence` probe no longer marks itself permanently unavailable
   on a host with **no input devices at startup** (a headless test Pi). If the
   process could read a `/dev/input/event*` node that appears later (root, or the

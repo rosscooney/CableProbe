@@ -1095,6 +1095,10 @@ def test_keystroke_reader_separates_instances_on_a_reused_node(monkeypatch):
     assert [1.0] in buckets.values()
     assert [100.0] in buckets.values()
     assert not any(sorted(v) == [1.0, 100.0] for v in buckets.values())
+    # the *first* instance keeps its original key, so analysis does not treat
+    # it as a device newly appearing during a later phase
+    assert buckets["event9"] == [1.0]
+    assert "event9#2" in buckets
 
 
 async def test_udev_monitor_start_raises_when_the_monitor_cannot_be_created(monkeypatch):
