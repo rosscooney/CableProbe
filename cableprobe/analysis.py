@@ -8,6 +8,7 @@ from __future__ import annotations
 from cableprobe.logging_config import get_logger
 from cableprobe.models import (
     KIND_LISTENING_SOCKET,
+    KIND_POWER_SERIES,
     PHASE_BASELINE,
     PHASE_POST_TEST,
     PHASE_TEST,
@@ -118,6 +119,10 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
 
     for key in sorted(keys):
         kind, identity = key
+        if kind == KIND_POWER_SERIES:
+            # waveform telemetry - not a tracked entity; every field differs
+            # every session. Handled by _power_series_deltas() below.
+            continue
         in_base = key in baseline
         in_test = key in test
         in_post = key in post
@@ -260,7 +265,67 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
             deltas, {**baseline, **test}, post_by_key, phase=PHASE_POST_TEST
         )
     )
+    deltas.extend(_power_series_deltas(phases))
     return [d for d in deltas if not _is_ephemeral_listener_churn(d)]
+
+
+def _power_series_deltas(phases: dict[str, PhaseObservation]) -> list[Delta]:
+    """Compare each phase's inline-power waveform summary against baseline.
+
+    The ``power`` probe samples VBUS current continuously between snapshots and
+    emits one ``power_series`` observation per phase. A brief current spike - a
+    radio or microcontroller inside the cable waking up - never lands in the
+    point-in-time ``power:vbus`` reading, so this is the only pass that can see
+    it. Emits at most one delta per phase, and only when the phase's waveform
+    did something baseline's did not.
+    """
+
+    key = (KIND_POWER_SERIES, "power:series")
+
+    def series_for(phase_name: str) -> Observation | None:
+        return phases[phase_name].end_snapshot.index().get(key)
+
+    baseline = series_for(PHASE_BASELINE)
+    base_spikes = int(baseline.attributes.get("spike_count", 0)) if baseline else 0
+    base_max = float(baseline.attributes.get("max_current_ma", 0.0)) if baseline else 0.0
+
+    out: list[Delta] = []
+    for phase_name in (PHASE_TEST, PHASE_POST_TEST):
+        series = series_for(phase_name)
+        if series is None:
+            continue
+        attrs = dict(series.attributes)
+        threshold = float(attrs.get("alert_threshold_ma", 0.0))
+        new_spikes = int(attrs.get("spike_count", 0)) - base_spikes
+        excursion_ma = float(attrs.get("max_current_ma", 0.0)) - base_max
+
+        if not (
+            new_spikes > 0
+            or excursion_ma > threshold
+            or attrs.get("sustained_excess")
+            or attrs.get("voltage_excursion")
+        ):
+            continue
+
+        attrs["spikes_above_baseline"] = max(new_spikes, 0)
+        attrs["peak_above_baseline_ma"] = round(excursion_ma)
+        out.append(
+            Delta(
+                change="appeared",
+                kind=KIND_POWER_SERIES,
+                identity=f"power:series:{phase_name}",
+                label=series.label,
+                first_seen_phase=phase_name,
+                present_in={
+                    PHASE_BASELINE: False,
+                    PHASE_TEST: phase_name == PHASE_TEST,
+                    PHASE_POST_TEST: phase_name == PHASE_POST_TEST,
+                },
+                reverted_after_disconnect=not attrs.get("sustained_excess"),
+                attributes=attrs,
+            )
+        )
+    return out
 
 
 def _is_ephemeral_listener_churn(d: Delta) -> bool:
@@ -337,6 +402,8 @@ def _boundary_deltas(
 
     for key in sorted(set(before_idx) | set(after_idx)):
         kind, identity = key
+        if kind == KIND_POWER_SERIES:  # handled by _power_series_deltas()
+            continue
         b = before_idx.get(key)
         a = after_idx.get(key)
         present_in = present_in_for.get(key, absent)

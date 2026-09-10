@@ -100,6 +100,17 @@ _THEMES: list[tuple[str, tuple[str, ...], str]] = [
         "- this is what that looks like.",
     ),
     (
+        "powered-electronics",
+        ("cable-draws-power", "power-current-spiked", "power-waveform-excursion",
+         "bus-voltage-out-of-range"),
+        "The inline sensor measured current or voltage on the USB power line "
+        "that a passive cable cannot explain — a steady extra draw, or a brief "
+        "spike. That means there is powered electronics (a chip, a radio) inside "
+        "the cable or connector. Current draw is the one thing a cable cannot "
+        "fake with its USB descriptors. If you attached a real device to the far "
+        "end, compare the figure to that device's rated draw first.",
+    ),
+    (
         "power-delivery",
         ("typec-data-role", "typec-alt-mode"),
         "The cable negotiated abilities — a data role, or a DisplayPort / "

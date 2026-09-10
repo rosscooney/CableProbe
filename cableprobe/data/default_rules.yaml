@@ -731,6 +731,38 @@ rules:
         all:
           - { key: excess_draw, equals: "True" }
 
+  - id: power-current-spiked-during-test
+    title: USB current spiked during the test phase beyond the steady-state reading
+    severity: high
+    rationale: >
+      The inline sensor sampled VBUS current throughout the phase and caught one
+      or more excursions above the alert threshold that the single end-of-phase
+      reading did not show. A cable that charges normally but pulls a burst of
+      current when a radio or microcontroller inside it wakes up is only visible
+      in the waveform. Compare the spike count and peak against the rated draw
+      of any real device you attached to the far end.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: power_series
+      attributes:
+        any:
+          - { key: current_spike, equals: "True" }
+          - { key: sustained_excess, equals: "True" }
+
+  - id: power-waveform-excursion-after-disconnect
+    title: USB current or voltage moved during the post-test phase
+    severity: medium
+    rationale: >
+      The VBUS waveform showed a current spike or an out-of-range voltage
+      excursion after the cable was unplugged. Something is still drawing from
+      or feeding the port, or the cable did not fully disconnect. On a clean
+      disconnect the post-test waveform should match baseline.
+    match:
+      change: appeared
+      first_seen_phase: post_test
+      kind: power_series
+
   - id: usb-bus-voltage-out-of-range
     title: USB VBUS voltage left the normal 5 V range while the cable was connected
     severity: medium

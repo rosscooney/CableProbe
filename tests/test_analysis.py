@@ -137,6 +137,44 @@ def test_ephemeral_listener_churn_is_filtered_but_persistent_one_is_kept(phase_b
     assert d["listen:tcp:0.0.0.0:46002"].change == "appeared"
 
 
+def test_power_series_spike_during_test_produces_a_delta(phase_builder):
+    from cableprobe.models import KIND_POWER_SERIES
+
+    def series(label, **attrs):
+        base = dict(
+            spike_count=0, max_current_ma=90, alert_threshold_ma=8, baseline_ma=90,
+            current_spike=False, sustained_excess=False, voltage_excursion=False,
+        )
+        base.update(attrs)
+        return obs(KIND_POWER_SERIES, "power:series", label, **base)
+
+    phases = phase_builder(
+        baseline_end=[series("flat")],
+        test_end=[series("spiky", spike_count=3, max_current_ma=260, current_spike=True)],
+        post_end=[series("flat")],
+    )
+    d = _by_identity(analyse(phases))
+    assert d["power:series:test"].first_seen_phase == "test"
+    assert d["power:series:test"].kind == KIND_POWER_SERIES
+    assert d["power:series:test"].attributes["spikes_above_baseline"] == 3
+    # the raw per-phase telemetry is not itself emitted as a modified delta
+    assert "power:series" not in d
+    # a clean post-test waveform matching baseline produces nothing
+    assert "power:series:post_test" not in d
+
+
+def test_power_series_no_delta_when_waveform_matches_baseline(phase_builder):
+    from cableprobe.models import KIND_POWER_SERIES
+
+    flat = obs(
+        KIND_POWER_SERIES, "power:series", "flat",
+        spike_count=0, max_current_ma=90, alert_threshold_ma=8, baseline_ma=90,
+        current_spike=False, sustained_excess=False, voltage_excursion=False,
+    )
+    phases = phase_builder(baseline_end=[flat], test_end=[flat], post_end=[flat])
+    assert not any(dd.kind == KIND_POWER_SERIES for dd in analyse(phases))
+
+
 def test_transient_ephemeral_listener_does_not_reach_the_rules():
     from cableprobe.models import KIND_LISTENING_SOCKET, PHASE_BASELINE, PHASE_POST_TEST, PHASE_TEST
     from tests.conftest import phase

@@ -15,6 +15,21 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- The `power` probe now records a **current waveform**, not just an
+  end-of-phase reading. It samples the INA219 in the background between phase
+  boundaries (`power_sample_interval_ms`, ring capped at
+  `power_series_max_samples`) and emits a compact per-phase `power_series`
+  observation - min / max / mean / p95 current, spike count and peak vs the
+  no-cable baseline, voltage excursion - scalars only, never the raw samples.
+  `analyse()` gains a pass that flags a phase whose waveform spiked or ran
+  sustained-high when baseline's did not, and two rules act on it:
+  `power-current-spiked-during-test` (high) and
+  `power-waveform-excursion-after-disconnect` (medium). This is the only way an
+  implant that charges normally but draws a burst when its radio transmits is
+  caught. Closes the power-first scope of issue #1.
+
 ### Fixed
 
 - Ephemeral-range TCP listeners are now dropped from the phase diff unless the

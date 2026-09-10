@@ -263,9 +263,10 @@ async def _observe_phase(
         await sleep(step)
         elapsed += step
         # Drain any events probes queued during this interval, and advance the
-        # progress display. Snapshots are only captured at the phase boundaries;
-        # intra-phase sampling is not consumed by analyse() yet (see issue #1:
-        # in-phase transient detection).
+        # progress display. Full snapshots are only captured at the phase
+        # boundaries; a probe that needs a finer time series samples itself in
+        # the background (the power probe) and folds a compact summary into its
+        # boundary snapshot. See issue #1 for the remaining probes.
         _collect(_drain(probes))
         if on_tick is not None:
             on_tick(phase, elapsed, duration)

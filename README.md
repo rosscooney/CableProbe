@@ -76,7 +76,7 @@ Type-C port, and simply skips otherwise.
 | `process`         | New userspace processes started after the session began (kernel threads excluded). |
 | `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). |
 | `wifi_scan` *(off by default)* | Wi-Fi APs in range. Only useful when you specifically suspect the cable carries a radio **and** can baseline somewhere RF-quiet — on normal premises every session lists a dozen neighbouring APs. Enable it in `probes.enabled`. |
-| `power` *(off by default)* | Inline USB VBUS voltage / current from an **INA219** on the Pi's I²C bus — the one measurement a cable can't lie about (powered electronics draw tens of mA). Needs the sensor wired up and `pip install 'cableprobe[power]'`. |
+| `power` *(off by default)* | Inline USB VBUS voltage / current from an **INA219** on the Pi's I²C bus — the one measurement a cable can't lie about (powered electronics draw tens of mA). Samples continuously between phase boundaries, so a brief current spike (a radio burst) is caught, not just a steady draw. Needs the sensor wired up and `pip install 'cableprobe[power]'`. |
 | `connections` *(off by default)* | Outbound TCP connections to routable hosts — a payload or gadget phoning home. Enable only when the test host has **no** internet access, or every apt/NTP call is noise. |
 
 Probes that need hardware or kernel interfaces the host does not expose (no
@@ -254,6 +254,8 @@ probes:
   power_i2c_address: 0x40
   power_shunt_ohms: 0.1
   power_alert_ma: 8               # mA over baseline that counts as "electronics"
+  power_sample_interval_ms: 250   # `power` waveform: sample cadence between snapshots
+  power_series_max_samples: 4000  #   and the per-phase ring cap
 rules_file: null                  # null => packaged default rules
 output_dir: ./cableprobe-sessions
 ```

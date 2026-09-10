@@ -176,6 +176,28 @@ def test_listener_rules_separate_fixed_and_ephemeral_ports():
     assert "new-listener-on-connect" not in _ids(port=51000, ephemeral_port=True)
 
 
+def test_power_waveform_rules_fire_on_a_series_delta():
+    rs = RuleSet.default()
+
+    def _ids(identity, phase, **attrs):
+        d = _delta("power_series", identity, first_seen_phase=phase, **attrs)
+        return {f.rule_id for f in rs.evaluate([d])}
+
+    assert "power-current-spiked-during-test" in _ids(
+        "power:series:test", "test", current_spike=True
+    )
+    assert "power-current-spiked-during-test" in _ids(
+        "power:series:test", "test", current_spike=False, sustained_excess=True
+    )
+    # no spike attributes -> the test-phase rule does not fire
+    assert "power-current-spiked-during-test" not in _ids(
+        "power:series:test", "test", current_spike=False, sustained_excess=False
+    )
+    assert "power-waveform-excursion-after-disconnect" in _ids(
+        "power:series:post_test", "post_test", voltage_excursion=True
+    )
+
+
 def test_persistence_rules_cover_post_test_deletion_and_unreadable():
     rs = RuleSet.default()
 

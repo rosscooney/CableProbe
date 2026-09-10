@@ -20,14 +20,23 @@ For a clean reading, run the TEST phase with the cable connected but **nothing**
 on its far end - then any current above a few mA is electronics in the cable.
 If you connect a real device, some draw is expected; compare it to that
 device's rated current.
+
+Between the phase-boundary snapshots the probe also samples the line in the
+background (``power_sample_interval_ms``) and emits a compact per-phase
+``power_series`` observation - min/max/mean/p95 current, spike count and peak
+against the no-cable baseline. A single end-of-phase reading cannot see an
+implant that draws normally until its radio transmits; the waveform can.
 """
 
 from __future__ import annotations
 
+import collections
+import threading
+import time
 from pathlib import Path
 
 from cableprobe.logging_config import get_logger
-from cableprobe.models import KIND_POWER_READING, Observation
+from cableprobe.models import KIND_POWER_READING, KIND_POWER_SERIES, Observation
 from cableprobe.probes.base import Probe, ProbeAvailability
 
 try:  # optional dependency
@@ -48,6 +57,14 @@ _VBUS_MAX = 5.60
 #: mA bucket - suppresses ADC noise so a steady draw does not churn "modified"
 #: deltas every sample.
 _CURRENT_BUCKET_MA = 2
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile of a non-empty list."""
+
+    ordered = sorted(values)
+    rank = max(0, min(len(ordered) - 1, round(pct / 100.0 * len(ordered)) - 1))
+    return ordered[rank]
 
 
 def _swap16(word: int) -> int:
@@ -83,13 +100,58 @@ class PowerProbe(Probe):
         self._alert_ma = int(config.probes.power_alert_ma)
         self._baseline_ma: float | None = None
 
+        self._sample_interval = max(0.02, config.probes.power_sample_interval_ms / 1000.0)
+        self._ring: collections.deque[tuple[float, float, float]] = collections.deque(
+            maxlen=max(1, int(config.probes.power_series_max_samples))
+        )
+        self._ring_lock = threading.Lock()
+        self._sampler_stop = threading.Event()
+        self._sampler: threading.Thread | None = None
+
     # -- helpers --------------------------------------------------------
 
     def _read(self) -> tuple[float, float]:
         with SMBus(self._bus_no) as bus:
             return read_ina219(bus, self._address, self._shunt)
 
+    def _sample_once(self) -> None:
+        """Read one (t, bus_v, current_ma) point into the ring. Errors are
+        swallowed - a single dropped sample does not matter to the summary."""
+
+        try:
+            bus_v, current_ma = self._read()
+        except OSError:
+            return
+        with self._ring_lock:
+            self._ring.append((time.monotonic(), bus_v, current_ma))
+
+    def _drain_window(self) -> list[tuple[float, float, float]]:
+        with self._ring_lock:
+            window = list(self._ring)
+            self._ring.clear()
+        return window
+
+    def _run_sampler(self) -> None:
+        # wait() returns True when stop is set -> exits promptly on stop()
+        while not self._sampler_stop.wait(self._sample_interval):
+            self._sample_once()
+
     # -- lifecycle ---------------------------------------------------
+
+    async def start(self) -> None:
+        if SMBus is None:  # pragma: no cover - availability() already gated this
+            return
+        self._sampler_stop.clear()
+        self._sampler = threading.Thread(
+            target=self._run_sampler, name="cableprobe-power-sampler", daemon=True
+        )
+        self._sampler.start()
+
+    async def stop(self) -> None:
+        self._sampler_stop.set()
+        if self._sampler is not None:
+            self._sampler.join(timeout=2.0)
+            self._sampler = None
 
     def availability(self) -> ProbeAvailability:
         if SMBus is None:
@@ -128,7 +190,7 @@ class PowerProbe(Probe):
         voltage_ok = _VBUS_MIN <= bus_v <= _VBUS_MAX
 
         sign = "+" if delta_ma >= 0 else ""
-        return [
+        observations = [
             Observation(
                 kind=KIND_POWER_READING,
                 identity="power:vbus",
@@ -147,3 +209,63 @@ class PowerProbe(Probe):
                 },
             )
         ]
+        series = self._series_observation()
+        if series is not None:
+            observations.append(series)
+        return observations
+
+    def _series_observation(self) -> Observation | None:
+        """Summarise the samples taken since the previous ``snapshot()`` call.
+
+        Called at every phase boundary, so the observation attached to a phase's
+        *end* snapshot describes that whole phase's waveform. Scalars only - the
+        raw ring never leaves the probe.
+        """
+
+        window = self._drain_window()
+        if not window:
+            return None
+
+        currents = [ma for _, _, ma in window]
+        volts = [v for _, v, _ in window]
+        span_s = round(window[-1][0] - window[0][0], 1)
+        base = self._baseline_ma
+        lo, hi = min(currents), max(currents)
+        mean_ma = round(sum(currents) / len(currents))
+        p95_ma = round(_percentile(currents, 95))
+        v_lo, v_hi = min(volts), max(volts)
+
+        spikes = (
+            [ma for ma in currents if ma - base > self._alert_ma]
+            if base is not None
+            else []
+        )
+        current_spike = bool(spikes)
+        sustained_excess = base is not None and (p95_ma - base) > self._alert_ma
+        voltage_excursion = v_lo < _VBUS_MIN or v_hi > _VBUS_MAX
+
+        return Observation(
+            kind=KIND_POWER_SERIES,
+            identity="power:series",
+            label=(
+                f"USB current over {span_s:.0f}s: {lo:.0f}-{hi:.0f} mA "
+                f"(mean {mean_ma}), {len(spikes)} spike(s) over threshold"
+            ),
+            attributes={
+                "sample_count": len(window),
+                "window_seconds": span_s,
+                "min_current_ma": round(lo),
+                "max_current_ma": round(hi),
+                "mean_current_ma": mean_ma,
+                "p95_current_ma": p95_ma,
+                "spike_count": len(spikes),
+                "spike_peak_ma": round(max(spikes)) if spikes else 0,
+                "baseline_ma": base,
+                "alert_threshold_ma": self._alert_ma,
+                "min_voltage_v": round(v_lo, 2),
+                "max_voltage_v": round(v_hi, 2),
+                "current_spike": current_spike,
+                "sustained_excess": bool(sustained_excess),
+                "voltage_excursion": bool(voltage_excursion),
+            },
+        )

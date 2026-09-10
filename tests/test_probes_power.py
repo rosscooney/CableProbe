@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import time
+
 from cableprobe.config import Config
-from cableprobe.models import KIND_POWER_READING
+from cableprobe.models import KIND_POWER_READING, KIND_POWER_SERIES
 from cableprobe.probes import power as power_mod
-from cableprobe.probes.power import PowerProbe, _swap16, _to_signed, read_ina219
+from cableprobe.probes.power import PowerProbe, _percentile, _swap16, _to_signed, read_ina219
 
 
 class FakeBus:
@@ -69,6 +71,57 @@ def test_power_probe_snapshot_and_baseline(monkeypatch):
     assert later.attributes["delta_ma"] >= 30
     assert later.attributes["excess_draw"] is True
     assert later.attributes["voltage_ok"] is True
+
+
+def test_percentile_nearest_rank():
+    assert _percentile([10], 95) == 10
+    assert _percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 50) == 5
+    assert _percentile([1] * 95 + [100] * 5, 95) == 1
+    assert _percentile([1] * 90 + [100] * 10, 95) == 100
+
+
+def test_power_probe_emits_waveform_series(monkeypatch):
+    steady = (5.0, 4.0)
+    spike = (5.0, 120.0)
+    # snapshot() reads 4x; between snapshots the sampler reads via _sample_once()
+    stream = iter(
+        [steady] * 4                       # baseline snapshot -> baseline_ma
+        + [steady] * 30 + [spike] * 2       # 32 samples, 2 well over threshold
+        + [steady] * 4                      # end snapshot
+        + [steady] * 100                    # slack
+    )
+    monkeypatch.setattr(power_mod.PowerProbe, "_read", lambda self: next(stream))
+    monkeypatch.setattr(power_mod, "SMBus", object())
+
+    probe = PowerProbe(Config(), 0.0)
+    assert probe.snapshot()[0].attributes["baseline_ma"] == 4  # bucketed 4.0
+
+    for _ in range(32):
+        probe._sample_once()
+
+    series = next(o for o in probe.snapshot() if o.kind == KIND_POWER_SERIES)
+    a = series.attributes
+    assert a["sample_count"] == 32
+    assert a["max_current_ma"] == 120
+    assert a["spike_count"] == 2
+    assert a["current_spike"] is True
+    assert a["sustained_excess"] is False  # 2/32 samples, p95 still at baseline
+    # a second snapshot with nothing sampled in between emits no series
+    assert all(o.kind != KIND_POWER_SERIES for o in probe.snapshot())
+
+
+def test_power_sampler_thread_starts_and_stops(monkeypatch):
+    monkeypatch.setattr(power_mod.PowerProbe, "_read", lambda self: (5.0, 5.0))
+    monkeypatch.setattr(power_mod, "SMBus", object())
+    import asyncio
+
+    probe = PowerProbe(Config(), 0.0)
+    probe._sample_interval = 0.01
+    asyncio.run(probe.start())
+    time.sleep(0.1)
+    asyncio.run(probe.stop())
+    assert probe._sampler is None
+    assert len(probe._drain_window()) > 0  # the thread sampled while alive
 
 
 def test_power_probe_unavailable_without_smbus(monkeypatch):

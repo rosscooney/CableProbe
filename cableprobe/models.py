@@ -60,6 +60,7 @@ KIND_PERSISTENCE_ITEM = "persistence_item"
 KIND_WIFI_AP = "wifi_ap"
 KIND_KEYSTROKE_TIMING = "keystroke_timing"
 KIND_POWER_READING = "power_reading"
+KIND_POWER_SERIES = "power_series"
 KIND_PROCESS = "process"
 KIND_KERNEL_MESSAGE = "kernel_message"
 

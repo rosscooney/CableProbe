@@ -115,6 +115,14 @@ class ProbeConfig(BaseModel):
     #: mA above the no-cable baseline that counts as "there is powered
     #: electronics in the cable".
     power_alert_ma: int = 8
+    #: `power` probe waveform sampling. Between the phase-boundary snapshots the
+    #: probe reads the INA219 every `power_sample_interval_ms` into a ring
+    #: capped at `power_series_max_samples`, and emits a compact per-phase
+    #: `power_series` observation (min/max/mean/p95 current, spike count). This
+    #: is the only way an implant that spikes current briefly - a radio burst -
+    #: is caught; a single end-of-phase reading misses it.
+    power_sample_interval_ms: int = 250
+    power_series_max_samples: int = 4000
 
     @field_validator("kernel_log_backend")
     @classmethod
