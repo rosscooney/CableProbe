@@ -625,13 +625,31 @@ rules:
     rationale: >
       A new listening socket on a non-ephemeral port appearing in correlation
       with the cable can be a management/callback service brought up by a helper
-      the cable triggered. Ephemeral-range ports (RPC, peer discovery, IDE
-      helpers) are already filtered out by the probe; ordinary service restarts
-      can still land here, so treat it as a lead, not a verdict.
+      the cable triggered. Ordinary service restarts can still land here, so
+      treat it as a lead, not a verdict.
     match:
       change: appeared
       first_seen_phase: test
       kind: listening_socket
+      attributes:
+        all:
+          - { key: ephemeral_port, not_equals: "True" }
+
+  - id: new-ephemeral-listener-on-connect
+    title: A process started listening on an ephemeral-range TCP port during the test
+    severity: info
+    rationale: >
+      A listener appeared on a high (ephemeral-range) port while the cable was
+      connected. These usually churn on their own - RPC, peer discovery, IDE
+      helpers - but a callback service can deliberately bind a fixed port up
+      here, and the number alone does not prove it is benign. Check what it is.
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: listening_socket
+      attributes:
+        all:
+          - { key: ephemeral_port, equals: "True" }
 
   # --- Wi-Fi (wifi_scan probe, off by default) --------------------------
   #

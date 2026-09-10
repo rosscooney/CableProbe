@@ -47,6 +47,15 @@ Each release is also published to
   could not see - is now recorded as a delta. Reported via a Codex-assisted
   review.
 
+### Changed
+
+- The `listeners` probe now records **every** listening socket, not only those
+  on non-ephemeral ports. A high port number does not prove a listener is
+  harmless - a callback service can deliberately bind one - so ephemeral-range
+  listeners are tagged `ephemeral_port: true` and handled by a separate
+  `new-ephemeral-listener-on-connect` rule (info) while the phase diff filters
+  the churn. Reported via a Codex-assisted review.
+
 ### Security
 
 - `read_text_nofollow()` (report and index reads) now opens `O_NONBLOCK` and

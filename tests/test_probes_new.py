@@ -452,14 +452,18 @@ PROC_NET_TCP_EPHEMERAL = """\
 """
 
 
-def test_parse_proc_net_tcp_drops_ephemeral_ports():
-    # 0x0016=22 (kept), 0xD2A9=53929 (ephemeral, dropped), 0x1F41=8001 (kept)
+def test_parse_proc_net_tcp_records_all_listeners_tagging_ephemeral():
+    # 0x0016=22, 0xD2A9=53929 (ephemeral), 0x1F41=8001
     out = parse_proc_net_tcp(PROC_NET_TCP_EPHEMERAL)
-    ports = sorted(o.attributes["port"] for o in out)
-    assert ports == [22, 8001]
-    # a custom lower bound still works
-    out2 = parse_proc_net_tcp(PROC_NET_TCP_EPHEMERAL, ephemeral_min=8000)
-    assert sorted(o.attributes["port"] for o in out2) == [22]
+    by_port = {o.attributes["port"]: o for o in out}
+    assert sorted(by_port) == [22, 8001, 53929]  # nothing dropped
+    assert by_port[53929].attributes["ephemeral_port"] is True
+    assert by_port[22].attributes["ephemeral_port"] is False
+    # the boundary is configurable
+    out2 = {o.attributes["port"]: o for o in parse_proc_net_tcp(
+        PROC_NET_TCP_EPHEMERAL, ephemeral_min=8000
+    )}
+    assert out2[8001].attributes["ephemeral_port"] is True
 
 
 def test_ephemeral_port_min_reads_sysctl(tmp_path):

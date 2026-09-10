@@ -200,8 +200,11 @@ def parse_proc_net_tcp(
 ) -> list[Observation]:
     """Parse ``/proc/net/tcp`` or ``/proc/net/tcp6`` -> LISTEN socket observations.
 
-    Sockets listening on an ephemeral-range port (>= ``ephemeral_min``) are
-    skipped -- they churn on their own and never carry a backdoor signal.
+    Every listener is recorded. One on an ephemeral-range port (>=
+    ``ephemeral_min``) is tagged ``ephemeral_port: true`` - those come and go on
+    their own, so the phase-to-phase diff is what decides whether it matters -
+    but a service can *deliberately* bind a fixed port in that range and its
+    number does not prove it is harmless.
     """
 
     observations: list[Observation] = []
@@ -213,8 +216,6 @@ def parse_proc_net_tcp(
         if state != _TCP_LISTEN:
             continue
         endpoint, port = _decode_proc_net_address(local, ipv6=ipv6)
-        if port is not None and port >= ephemeral_min:
-            continue
         proto = "tcp6" if ipv6 else "tcp"
         observations.append(
             Observation(
@@ -225,6 +226,7 @@ def parse_proc_net_tcp(
                     "protocol": proto,
                     "endpoint": endpoint,
                     "port": port,
+                    "ephemeral_port": port is not None and port >= ephemeral_min,
                     "uid": _int(uid),
                     "inode": inode,
                 },

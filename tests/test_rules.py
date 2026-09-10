@@ -124,6 +124,18 @@ def test_persisted_process_not_flagged_as_device():
     assert not any(f.rule_id == "usb-device-did-not-revert" for f in findings)
 
 
+def test_listener_rules_separate_fixed_and_ephemeral_ports():
+    rs = RuleSet.default()
+
+    def _ids(**attrs):
+        d = _delta("listening_socket", "listen:tcp:0.0.0.0:x", **attrs)
+        return {f.rule_id for f in rs.evaluate([d])}
+
+    assert "new-listener-on-connect" in _ids(port=4444, ephemeral_port=False)
+    assert "new-ephemeral-listener-on-connect" in _ids(port=51000, ephemeral_port=True)
+    assert "new-listener-on-connect" not in _ids(port=51000, ephemeral_port=True)
+
+
 def test_persistence_rules_cover_post_test_deletion_and_unreadable():
     rs = RuleSet.default()
 
