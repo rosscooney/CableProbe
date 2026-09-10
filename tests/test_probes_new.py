@@ -1111,6 +1111,26 @@ async def test_udev_monitor_start_raises_when_the_monitor_cannot_be_created(monk
     assert probe._monitor is None
 
 
+def test_run_command_caps_stdout(monkeypatch):
+    import cableprobe.probes.base as base
+
+    monkeypatch.setattr(base, "MAX_COMMAND_OUTPUT_BYTES", 200)
+    code, out, err = base.run_command(
+        ["python3", "-c", "print('LINE\\n' * 100000)"], timeout=10.0
+    )
+    assert code == 0
+    assert len(out.encode()) < 500  # capped, not ~600 KB
+    assert "output truncated" in out
+    assert out.rstrip().endswith("LINE")  # kept whole trailing lines
+
+
+def test_run_command_missing_binary():
+    from cableprobe.probes.base import run_command
+
+    code, out, err = run_command(["definitely-not-a-real-binary-xyz"])
+    assert code == -1 and "not found" in err
+
+
 def test_oui_family_groups_locally_administered_bssids():
     from cableprobe.probes.wifi_scan import oui_family
 

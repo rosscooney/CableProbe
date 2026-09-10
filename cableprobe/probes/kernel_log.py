@@ -74,6 +74,10 @@ VERBOSE_KEYWORDS = SIGNAL_KEYWORDS + [
 #: Back-compat alias.
 DEFAULT_KEYWORDS = SIGNAL_KEYWORDS
 
+#: Hard cap on kernel-log lines pulled per snapshot. A session-storming device
+#: (thousands of enumeration errors) must not make the report unbounded.
+_MAX_KERNEL_LINES = 100_000
+
 _LEADING_TIMESTAMP = re.compile(r"^\[\s*\d+\.\d+\]\s*")
 _ISO_PREFIX = re.compile(r"^\S+\s+\S+\s+\S+\s+\S+\s+kernel:\s*", re.IGNORECASE)
 _DIGITS = re.compile(r"\d+")
@@ -154,6 +158,8 @@ class KernelLogProbe(Probe):
                     "--no-pager",
                     "-o",
                     "short-iso",
+                    "--lines",
+                    str(_MAX_KERNEL_LINES),  # hard cap on a session-storming host
                     "--since",
                     since.astimezone().strftime("%Y-%m-%d %H:%M:%S"),
                 ],

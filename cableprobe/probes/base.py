@@ -130,24 +130,48 @@ def sysfs_driver(sys_dir: Path | str) -> str | None:
         return None
 
 
+#: Hard cap on how much of a command's stdout we keep. `journalctl` / `dmesg`
+#: on a long or noisy session can emit tens of MB; past this the output is
+#: truncated (from the front - the newest lines matter most) and a marker is
+#: prepended.
+MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024
+
+
 def run_command(args: list[str], *, timeout: float = 15.0) -> tuple[int, str, str]:
     """Run ``args`` and return ``(returncode, stdout, stderr)``.
 
     Never raises for ordinary failures; returns ``(-1, "", reason)`` instead.
+    stdout is capped at :data:`MAX_COMMAND_OUTPUT_BYTES` (oldest lines dropped).
     """
 
     try:
         proc = subprocess.run(
             args,
             capture_output=True,
-            text=True,
             timeout=timeout,
             check=False,
         )
     except FileNotFoundError:
         return -1, "", f"command not found: {args[0]}"
-    except subprocess.TimeoutExpired:
-        return -1, "", f"command timed out after {timeout}s: {' '.join(args)}"
+    except subprocess.TimeoutExpired as exc:
+        out = _truncate(exc.stdout or b"")
+        return -1, out, f"command timed out after {timeout}s: {' '.join(args)}"
     except OSError as exc:  # pragma: no cover - defensive
         return -1, "", f"failed to run {' '.join(args)}: {exc}"
-    return proc.returncode, proc.stdout, proc.stderr
+    return (
+        proc.returncode,
+        _truncate(proc.stdout or b""),
+        (proc.stderr or b"")[-65536:].decode("utf-8", "replace"),
+    )
+
+
+def _truncate(data: bytes) -> str:
+    if len(data) <= MAX_COMMAND_OUTPUT_BYTES:
+        return data.decode("utf-8", "replace")
+    kept = data[-MAX_COMMAND_OUTPUT_BYTES:]
+    # drop a partial first line so parsers see whole records only
+    kept = kept.split(b"\n", 1)[-1]
+    return (
+        f"[... output truncated: kept the last {len(kept)} of {len(data)} bytes ...]\n"
+        + kept.decode("utf-8", "replace")
+    )

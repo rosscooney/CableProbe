@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- `run_command()` caps captured stdout at 8 MiB (oldest lines dropped, a marker
+  prepended) and the `kernel_log` probe passes `--lines 100000` to
+  `journalctl`, so a device that storms the kernel log can no longer grow the
+  report without bound - independent of the per-phase event cap. Reported via a
+  Codex-assisted review.
+
 ### Security
 
 - `Delta`, `AttributeChange` and `Finding` display fields are now sanitised
