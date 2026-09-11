@@ -15,6 +15,8 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-09-11
+
 ### Added
 
 - **"Chameleon" USB re-enumeration detection**: a device that drops off the
@@ -41,6 +43,14 @@ Each release is also published to
   again before any end-of-phase snapshot) is already caught by the existing
   udev-event transient-delta path plus the keystroke-injection verdict - no
   code change needed, this closes that scope of the issue.
+- The report now says which **optional probes were never turned on**
+  (`power`, `wifi_scan`, `connections` - off by default) instead of staying
+  silent about them. A clean session previously read the same whether or not
+  power draw was actually measured; now, if `power` was not enabled, the
+  report says so explicitly - "power draw was not measured this session" - so
+  a session where a cable/port supplied power is never confused with one where
+  CableProbe simply didn't look. New `SessionMetadata.probes_not_enabled`
+  field.
 
 ### Fixed
 
@@ -65,17 +75,6 @@ Each release is also published to
   physical adapter could appear as up to three "devices", inflating
   `transient-device-during-test` and `unexpected-usb-device-appeared`.
   Reported from a real ethernet-adapter test run.
-
-### Added
-
-- The report now says which **optional probes were never turned on**
-  (`power`, `wifi_scan`, `connections` - off by default) instead of staying
-  silent about them. A clean session previously read the same whether or not
-  power draw was actually measured; now, if `power` was not enabled, the
-  report says so explicitly - "power draw was not measured this session" - so
-  a session where a cable/port supplied power is never confused with one where
-  CableProbe simply didn't look. New `SessionMetadata.probes_not_enabled`
-  field.
 
 ## [0.4.7] - 2026-09-10
 
@@ -782,7 +781,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.7...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.8...HEAD
+[0.4.8]: https://github.com/rosscooney/CableProbe/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/rosscooney/CableProbe/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/rosscooney/CableProbe/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/rosscooney/CableProbe/compare/v0.4.4...v0.4.5
