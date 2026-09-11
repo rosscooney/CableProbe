@@ -11,6 +11,7 @@
 #                          usb_pd | usb_topology | hid_report | block_device |
 #                          mount | network_interface | network_config |
 #                          listening_socket | outbound_connection |
+#                          connection_frequency |
 #                          persistence_item | input_device | hid_device |
 #                          serial_device | audio_device | video_device |
 #                          pci_device | kernel_module | wifi_ap |
@@ -466,6 +467,23 @@ rules:
       change: appeared
       first_seen_phase: test
       kind: outbound_connection
+
+  - id: repeated-outbound-connection-during-test
+    title: The same remote host was contacted repeatedly during the test phase
+    severity: medium
+    rationale: >
+      A single glimpse of an outbound connection can be a timing coincidence
+      with a legitimate background process; the *same* remote host showing up
+      across most of the test phase's samples is a beaconing pattern - a
+      payload checking in - not a one-off. Only meaningful on a test host with
+      no other network activity (see the `connections` probe notes).
+    match:
+      change: appeared
+      first_seen_phase: test
+      kind: connection_frequency
+      attributes:
+        all:
+          - { key: repeated, equals: "True" }
 
   # --- USB-C / Power Delivery (usbc_pd probe) --------------------------
 

@@ -6,11 +6,12 @@
 from __future__ import annotations
 
 from cableprobe.models import (
+    KIND_CONNECTION_FREQUENCY,
     KIND_HID_REPORT,
     KIND_OUTBOUND_CONNECTION,
     KIND_PERSISTENCE_ITEM,
 )
-from cableprobe.probes.connections import parse_outbound
+from cableprobe.probes.connections import active_remotes, parse_outbound
 from cableprobe.probes.hid_report import parse_hid_report_descriptor, scan_hid_reports
 from cableprobe.probes.persistence import scan_persistence
 
@@ -244,3 +245,64 @@ def test_parse_outbound_keeps_only_routable_active():
     # the LISTEN socket and the loopback->loopback connection dropped
     assert remotes == ["8.8.8.8:443", "93.184.216.34:443"]
     assert all(o.kind == KIND_OUTBOUND_CONNECTION for o in out)
+
+
+def test_active_remotes_matches_the_routable_set_parse_outbound_uses():
+    assert active_remotes(_PROC_NET_TCP) == {
+        ("tcp", "8.8.8.8:443"),
+        ("tcp", "93.184.216.34:443"),
+    }
+
+
+def test_connection_probe_emits_frequency_observations(tmp_path, monkeypatch):
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_PROC_NET_TCP, encoding="utf-8")
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+
+    probe = ConnectionProbe(Config(), 0.0)
+    for _ in range(probe._repeat_threshold):
+        probe._sample_once()
+
+    freq = {
+        o.attributes["remote"]: o
+        for o in probe.snapshot()
+        if o.kind == KIND_CONNECTION_FREQUENCY
+    }
+    assert freq["8.8.8.8:443"].attributes["seen_count"] == probe._repeat_threshold
+    assert freq["8.8.8.8:443"].attributes["sample_count"] == probe._repeat_threshold
+    assert freq["8.8.8.8:443"].attributes["repeated"] is True
+
+    # a second snapshot with nothing sampled in between emits no frequency obs
+    assert all(o.kind != KIND_CONNECTION_FREQUENCY for o in probe.snapshot())
+
+
+async def test_connection_probe_sampler_thread_starts_and_stops(tmp_path, monkeypatch):
+    import time
+
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_PROC_NET_TCP, encoding="utf-8")
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+
+    probe = ConnectionProbe(Config(), 0.0)
+    probe._sample_interval = 0.01
+    await probe.start()
+    time.sleep(0.1)
+    await probe.stop()
+    assert probe._sampler is None
+    counts, total = probe._drain_window()
+    assert total > 0  # the thread sampled while alive
+    assert counts  # and actually saw the routable remotes

@@ -15,6 +15,18 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- The `connections` probe now records **how often**, not just whether, a
+  remote host was contacted. It samples `/proc/net/tcp{,6}` in the background
+  between phase boundaries (`connections_sample_interval_seconds`) and emits a
+  per-remote `connection_frequency` observation at each boundary - "seen in N
+  of M samples". A new rule, `repeated-outbound-connection-during-test`
+  (medium), fires when a remote is seen in at least `connections_repeat_threshold`
+  samples during the test phase, distinguishing a beaconing pattern from a
+  single-poll coincidence with legitimate background traffic. Addresses the
+  connection-frequency scope of issue #1.
+
 ### Fixed
 
 - `systemd-udevd`'s own per-uevent `udev-worker` helper processes (a dozen+

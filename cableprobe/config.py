@@ -123,6 +123,13 @@ class ProbeConfig(BaseModel):
     #: is caught; a single end-of-phase reading misses it.
     power_sample_interval_ms: int = 250
     power_series_max_samples: int = 4000
+    #: `connections` probe: how often to sample /proc/net/tcp{,6} between phase
+    #: boundaries (a single glimpse of an outbound connection can be a timing
+    #: coincidence; seeing the same remote across multiple samples during the
+    #: test phase is a beaconing pattern), and how many samples out of the
+    #: window count as "repeated" rather than a one-off.
+    connections_sample_interval_seconds: float = 2.0
+    connections_repeat_threshold: int = 3
 
     @field_validator("kernel_log_backend")
     @classmethod

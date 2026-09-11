@@ -204,6 +204,22 @@ def test_transient_device_rule_is_restricted_to_real_device_kinds():
         assert "transient-device-during-test" not in ids
 
 
+def test_repeated_connection_rule_needs_the_repeated_flag():
+    rs = RuleSet.default()
+
+    def _ids(**attrs):
+        d = _delta("connection_frequency", "conn:freq:tcp:1.2.3.4:443", **attrs)
+        return {f.rule_id for f in rs.evaluate([d])}
+
+    assert "repeated-outbound-connection-during-test" in _ids(
+        remote="1.2.3.4:443", seen_count=5, sample_count=5, repeated=True
+    )
+    # a single glimpse (repeated=False) is not a beaconing pattern
+    assert "repeated-outbound-connection-during-test" not in _ids(
+        remote="1.2.3.4:443", seen_count=1, sample_count=5, repeated=False
+    )
+
+
 def test_power_waveform_rules_fire_on_a_series_delta():
     rs = RuleSet.default()
 
