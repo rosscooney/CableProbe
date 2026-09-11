@@ -26,6 +26,11 @@ Each release is also published to
   samples during the test phase, distinguishing a beaconing pattern from a
   single-poll coincidence with legitimate background traffic. Addresses the
   connection-frequency scope of issue #1.
+- Added an end-to-end test confirming the "brief-HID" scenario from issue #1
+  (a cable enumerates a keyboard, injects keystrokes, and drops the interface
+  again before any end-of-phase snapshot) is already caught by the existing
+  udev-event transient-delta path plus the keystroke-injection verdict - no
+  code change needed, this closes that scope of the issue.
 
 ### Fixed
 

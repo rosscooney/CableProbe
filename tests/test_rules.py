@@ -242,6 +242,42 @@ def test_power_waveform_rules_fire_on_a_series_delta():
     )
 
 
+def test_brief_hid_implant_is_caught_end_to_end(phase_builder):
+    """Issue #1's "brief-HID" scenario: a cable enumerates a keyboard,
+    injects keystrokes, and drops the interface again before any end-of-phase
+    snapshot is taken - so the boundary-diff alone would see nothing. This
+    must still be caught via the continuous udev event stream (a transient
+    delta) and the keystroke-timing verdict, which is sampled independently of
+    the phase-boundary snapshots.
+    """
+    from cableprobe.analysis import analyse
+    from cableprobe.models import KIND_INPUT_DEVICE, KIND_KEYSTROKE_TIMING
+    from tests.conftest import event, obs
+
+    keyboard_events = [
+        event(
+            "add", KIND_INPUT_DEVICE, "input:ghost", "Ghost HID",
+            ID_INPUT_KEYBOARD="1",
+        ),
+        event("remove", KIND_INPUT_DEVICE, "input:ghost", "Ghost HID"),
+    ]
+    injected = obs(
+        KIND_KEYSTROKE_TIMING, "keys:input:ghost", "key-press timing for ghost",
+        looks_injected=True, mean_interval_ms=2.0,
+    )
+    phases = phase_builder(
+        baseline_end=[], test_end=[injected], post_end=[], test_events=keyboard_events,
+    )
+
+    deltas = analyse(phases)
+    ghost = next(d for d in deltas if d.identity == "input:ghost")
+    assert ghost.transient is True  # never landed in an end-of-phase snapshot
+
+    ids = {f.rule_id for f in RuleSet.default().evaluate(deltas)}
+    assert "transient-device-during-test" in ids  # the enumerate-then-vanish
+    assert "keystroke-injection-detected" in ids  # the injection itself
+
+
 def test_persistence_rules_cover_post_test_deletion_and_unreadable():
     rs = RuleSet.default()
 
