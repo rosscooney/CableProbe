@@ -555,13 +555,31 @@ def test_process_probe_filters_noise_and_own_children(monkeypatch):
            "cmdline": ["/usr/sbin/ModemManager"]}),
         P({"pid": 13, "name": "bash", "ppid": 1, "create_time": now - 9999, "username": "pi",
            "cmdline": ["bash"]}),
+        P({"pid": 15, "name": "(udev-worker)", "ppid": 1, "create_time": now,
+           "username": "root", "cmdline": []}),  # udev's own churn -> dropped
+        P({"pid": 16, "name": "udev-worker", "ppid": 1, "create_time": now,
+           "username": "root", "cmdline": []}),  # either spelling -> dropped
+        P({"pid": 17, "name": "udev-worker", "ppid": 1, "create_time": now,
+           "username": "root", "cmdline": ["udev-worker", "--payload"]}),  # real cmdline -> KEPT
     ]
     monkeypatch.setattr(
         "cableprobe.probes.processes.psutil.process_iter", lambda fields: procs
     )
     out = ProcessProbe(_CFG, now - 1).snapshot()
     names = sorted(o.attributes["name"] for o in out)
-    assert names == ["ModemManager", "sleep"]  # the spoofed sleep survives
+    assert names == ["ModemManager", "sleep", "udev-worker"]
+    kept = next(o for o in out if o.attributes["pid"] == 17)
+    assert kept.attributes["cmdline"]  # the spoofed one keeps its evidence
+
+
+def test_is_udev_worker():
+    from cableprobe.probes.processes import _is_udev_worker
+
+    assert _is_udev_worker("udev-worker", []) is True
+    assert _is_udev_worker("(udev-worker)", []) is True
+    # a real command line -> not silently dropped, even with this name
+    assert _is_udev_worker("udev-worker", ["udev-worker", "--foo"]) is False
+    assert _is_udev_worker("sshd", []) is False
 
 
 def test_process_probe_redacts_secrets_in_cmdline(monkeypatch):

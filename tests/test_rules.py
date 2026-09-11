@@ -176,6 +176,34 @@ def test_listener_rules_separate_fixed_and_ephemeral_ports():
     assert "new-listener-on-connect" not in _ids(port=51000, ephemeral_port=True)
 
 
+def test_transient_device_rule_is_restricted_to_real_device_kinds():
+    rs = RuleSet.default()
+
+    def _transient(kind, identity):
+        return Delta(
+            change="appeared",
+            kind=kind,
+            identity=identity,
+            label=f"{kind} {identity}",
+            first_seen_phase="test",
+            present_in={"baseline": False, "test": False, "post_test": False},
+            transient=True,
+        )
+
+    ids = {f.rule_id for f in rs.evaluate([_transient(KIND_USB_DEVICE, "usb:1-2")])}
+    assert "transient-device-during-test" in ids
+
+    # udev-worker churn, a flickering listener, a kernel log line - none of
+    # these are a device enumerating, so none should trip the rule
+    for kind, identity in (
+        ("process", "proc:1:udev-worker"),
+        ("listening_socket", "listen:tcp:0.0.0.0:1"),
+        (KIND_KERNEL_MESSAGE, "kmsg:1"),
+    ):
+        ids = {f.rule_id for f in rs.evaluate([_transient(kind, identity)])}
+        assert "transient-device-during-test" not in ids
+
+
 def test_power_waveform_rules_fire_on_a_series_delta():
     rs = RuleSet.default()
 

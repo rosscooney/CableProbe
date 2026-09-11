@@ -10,7 +10,10 @@ processes whose creation time is at or after the session start, and drops:
   ``kthreadd``), which the kernel spawns, renames and reaps constantly;
 * the helper commands CableProbe itself shells out to (``lsusb``, ``ss``,
   ``journalctl``, ...);
-* trivial cron / systemd / shell plumbing (``sleep``, ``flock``, ...).
+* trivial cron / systemd / shell plumbing (``sleep``, ``flock``, ...);
+* ``udev-worker`` - systemd-udevd's own per-uevent helper, spawned and reaped
+  for *any* device event, including the ones this tool's own enumeration
+  causes.
 
 A helper daemon spawning when a storage device is auto-mounted, or
 ModemManager probing a rogue serial gadget, still shows up here.
@@ -67,6 +70,22 @@ def _is_kernel_thread(
     return False
 
 
+#: systemd (247+) forks one short-lived worker per uevent and renames it to
+#: this literally - parentheses included, it is the process's actual comm, not
+#: formatting added here - wiping its argv in the process. It is udev's own
+#: reaction to *any* device event, including ones this tool generates just by
+#: enumerating, not software the cable started, and there are often a dozen+
+#: of them per plug/unplug: they used to flood the phase-diff table and falsely
+#: trip transient-device-during-test. Only skipped together with an empty
+#: cmdline, like the kernel-thread fallback below - a process that merely
+#: names itself this while keeping a real command line is still reported.
+_UDEV_WORKER_NAMES = ("udev-worker", "(udev-worker)")
+
+
+def _is_udev_worker(name: str, cmdline: list[str]) -> bool:
+    return name in _UDEV_WORKER_NAMES and not cmdline
+
+
 def _is_trivial_plumbing(name: str, cmdline: list[str]) -> bool:
     """``sleep 5`` / ``usleep 200`` - cron/shell glue with no room for a payload.
 
@@ -120,6 +139,8 @@ class ProcessProbe(Probe):
                 if info.get("ppid") == own_pid:
                     continue
                 if _is_trivial_plumbing(name, cmdline):
+                    continue
+                if _is_udev_worker(name, cmdline):
                     continue
                 observations.append(
                     Observation(

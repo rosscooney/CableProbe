@@ -17,6 +17,17 @@ Each release is also published to
 
 ### Fixed
 
+- `systemd-udevd`'s own per-uevent `udev-worker` helper processes (a dozen+
+  per plug/unplug on modern systemd, gone within milliseconds) no longer flood
+  the phase-differences table or falsely trip `transient-device-during-test`
+  (medium) / `new-process-after-connect` (info) - they were udev's own
+  reaction to *any* device event, not software the cable started. The
+  `process` probe now drops a process named `udev-worker` / `(udev-worker)`
+  with an empty command line, the same way it already drops kernel threads; a
+  process that merely names itself that while keeping a real argv is still
+  reported. `transient-device-during-test` is also now restricted to actual
+  device kinds - a flickering process, listener or kernel log line was never
+  "a device enumerating". Reported from real keyboard/mouse test runs.
 - A multi-interface USB gadget's udev events (e.g. the CDC-ECM/CDC-Data pair
   behind a USB ethernet adapter) no longer get mis-typed as `usb_device` with
   a garbage `net:<class>/<subclass>/<protocol>` identity. `kind_for_device()`

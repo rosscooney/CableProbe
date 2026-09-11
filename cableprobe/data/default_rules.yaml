@@ -238,11 +238,14 @@ rules:
     rationale: >
       A device that enumerated and then removed itself within the test window
       (never captured in a steady-state snapshot) is characteristic of a
-      short-lived injection payload.
+      short-lived injection payload. Restricted to real device kinds - a
+      process, a kernel log line, or a socket flickering in and out between
+      polls is routine host churn, not a device enumerating.
     match:
       change: appeared
       first_seen_phase: test
       transient: true
+      kind: *device_kinds
 
   - id: kernel-enumeration-errors
     title: Kernel reported USB enumeration errors during the test phase
