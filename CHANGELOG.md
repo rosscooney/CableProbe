@@ -17,6 +17,16 @@ Each release is also published to
 
 ### Added
 
+- **"Chameleon" USB re-enumeration detection**: a device that drops off the
+  bus, re-enumerates presenting a different vendor/model ID or interface-class
+  set, then drops again and returns to its original shape - all within one
+  phase - is now caught even though both phase-boundary snapshots see only the
+  original, unremarkable shape. `analyse()` gains `_chameleon_deltas()`, which
+  diffs a device's own `add`/`change` udev events against each other (no new
+  sampling needed - the event stream is already continuous and already carries
+  `ID_USB_INTERFACES` / `ID_VENDOR_ID` / `ID_MODEL_ID` on every event). New
+  rule `usb-chameleon-reenumeration` (high). Addresses the remaining scope of
+  issue #1.
 - The `connections` probe now records **how often**, not just whether, a
   remote host was contacted. It samples `/proc/net/tcp{,6}` in the background
   between phase boundaries (`connections_sample_interval_seconds`) and emits a

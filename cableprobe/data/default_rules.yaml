@@ -345,6 +345,27 @@ rules:
           - { key: device_interface_classes, exists: true }
           - { key: device_num_interfaces, exists: true }
 
+  - id: usb-chameleon-reenumeration
+    title: A USB port presented more than one device descriptor within a single phase
+    severity: high
+    rationale: >
+      This bus position enumerated with a different vendor/model ID or
+      interface-class set more than once within one phase - a "chameleon" that
+      drops off the bus, re-enumerates as something else, then drops again and
+      comes back as its original shape. That is only visible through the
+      continuous udev event stream: a device that has reverted to its resting
+      shape by the next snapshot looks completely normal to a boundary-by-
+      boundary diff. Presenting one face at rest and a different one in
+      between is a strong indicator of a payload that only reveals itself
+      briefly.
+    match:
+      change: modified
+      first_seen_phase: [test, post_test]
+      kind: [usb_device, usb_interface]
+      attributes:
+        all:
+          - { key: chameleon_shape_count, exists: true }
+
   - id: hid-interface-has-bulk-endpoint
     title: An HID interface with a bulk endpoint appeared on connect
     severity: medium

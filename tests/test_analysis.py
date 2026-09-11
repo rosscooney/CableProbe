@@ -175,6 +175,95 @@ def test_power_series_no_delta_when_waveform_matches_baseline(phase_builder):
     assert not any(dd.kind == KIND_POWER_SERIES for dd in analyse(phases))
 
 
+def test_chameleon_reenumeration_is_caught_even_though_it_reverts(phase_builder):
+    # a cable that enumerates as a boring flash drive, briefly re-enumerates as
+    # a keyboard, then drops back to the flash drive shape - all within the
+    # test phase. Both phase-boundary snapshots see only the flash drive.
+    events = [
+        event(
+            "add", KIND_USB_DEVICE, "usb:1-2", "Boring Flash Drive",
+            ID_VENDOR_ID="0951", ID_MODEL_ID="1666", ID_USB_INTERFACES=":080650:",
+        ),
+        event("remove", KIND_USB_DEVICE, "usb:1-2", "Boring Flash Drive"),
+        event(
+            "add", KIND_USB_DEVICE, "usb:1-2", "Evil Keyboard",
+            ID_VENDOR_ID="046d", ID_MODEL_ID="c31c", ID_USB_INTERFACES=":030101:",
+        ),
+        event("remove", KIND_USB_DEVICE, "usb:1-2", "Evil Keyboard"),
+        event(
+            "add", KIND_USB_DEVICE, "usb:1-2", "Boring Flash Drive",
+            ID_VENDOR_ID="0951", ID_MODEL_ID="1666", ID_USB_INTERFACES=":080650:",
+        ),
+    ]
+    disk = obs(
+        KIND_USB_DEVICE, "usb:1-2", "Boring Flash Drive",
+        ID_VENDOR_ID="0951", ID_MODEL_ID="1666", ID_USB_INTERFACES=":080650:",
+    )
+    phases = phase_builder(
+        baseline_end=[], test_end=[disk], post_end=[], test_events=events,
+    )
+
+    deltas = analyse(phases)
+    chameleon = next(d for d in deltas if d.attributes.get("chameleon_shape_count"))
+    assert chameleon.kind == KIND_USB_DEVICE
+    assert chameleon.identity == "usb:1-2"
+    assert chameleon.first_seen_phase == PHASE_TEST
+    assert chameleon.attributes["chameleon_shape_count"] == 2
+    changed_keys = {c.key for c in chameleon.attribute_changes}
+    assert "ID_USB_INTERFACES" in changed_keys
+    assert "ID_VENDOR_ID" in changed_keys
+    # the normal appeared delta for the settled (reverted) shape is untouched
+    settled = next(d for d in deltas if d.identity == "usb:1-2" and d.change == "appeared")
+    assert settled.reverted_after_disconnect is True
+
+
+def test_chameleon_reenumeration_ignores_a_single_shape(phase_builder):
+    # one add event, or repeated adds of the SAME shape - not a chameleon
+    events = [
+        event(
+            "add", KIND_USB_DEVICE, "usb:1-3", "Normal Mouse",
+            ID_VENDOR_ID="046d", ID_MODEL_ID="c077", ID_USB_INTERFACES=":030102:",
+        ),
+        event(
+            "change", KIND_USB_DEVICE, "usb:1-3", "Normal Mouse",
+            ID_VENDOR_ID="046d", ID_MODEL_ID="c077", ID_USB_INTERFACES=":030102:",
+        ),
+    ]
+    mouse = obs(
+        KIND_USB_DEVICE, "usb:1-3", "Normal Mouse",
+        ID_VENDOR_ID="046d", ID_MODEL_ID="c077", ID_USB_INTERFACES=":030102:",
+    )
+    phases = phase_builder(
+        baseline_end=[], test_end=[mouse], post_end=[mouse], test_events=events,
+    )
+    deltas = analyse(phases)
+    assert not any(d.attributes.get("chameleon_shape_count") for d in deltas)
+
+
+def test_chameleon_reenumeration_ignores_a_partially_populated_event(phase_builder):
+    # the very first add on a fresh plug can have incomplete udev properties
+    # while the database enrichment settles - must not look like a second shape
+    events = [
+        event(
+            "add", KIND_USB_DEVICE, "usb:1-4", "Settling Device",
+            ID_VENDOR_ID="1234", ID_MODEL_ID="5678",
+        ),  # ID_USB_INTERFACES not populated yet
+        event(
+            "change", KIND_USB_DEVICE, "usb:1-4", "Settling Device",
+            ID_VENDOR_ID="1234", ID_MODEL_ID="5678", ID_USB_INTERFACES=":ff0000:",
+        ),
+    ]
+    dev = obs(
+        KIND_USB_DEVICE, "usb:1-4", "Settling Device",
+        ID_VENDOR_ID="1234", ID_MODEL_ID="5678", ID_USB_INTERFACES=":ff0000:",
+    )
+    phases = phase_builder(
+        baseline_end=[], test_end=[dev], post_end=[dev], test_events=events,
+    )
+    deltas = analyse(phases)
+    assert not any(d.attributes.get("chameleon_shape_count") for d in deltas)
+
+
 def test_transient_ephemeral_listener_does_not_reach_the_rules():
     from cableprobe.models import KIND_LISTENING_SOCKET, PHASE_BASELINE, PHASE_POST_TEST, PHASE_TEST
     from tests.conftest import phase

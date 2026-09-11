@@ -55,6 +55,13 @@ VOLATILE_KEYS = {
 _ADD_ACTIONS = {"add", "bind", "online"}
 _REMOVE_ACTIONS = {"remove", "unbind", "offline"}
 
+#: udev event attributes that describe what a USB device physically *is*.
+#: Populated synchronously by udev's built-in usb_id / default rules, so they
+#: are reliably present on the very first ``add`` - unlike the hwdb-lookup
+#: ``*_FROM_DATABASE`` fields, which can lag and would make this noisy.
+_CHAMELEON_KEYS = ("ID_VENDOR_ID", "ID_MODEL_ID", "ID_USB_INTERFACES")
+_CHAMELEON_ACTIONS = {"add", "change"}
+
 #: Kinds where "appeared during test, still present after disconnect" is a
 #: genuine "something was left on the host" red flag. Kernel log lines (which
 #: only ever accumulate), processes, the topology summary and config-style
@@ -266,7 +273,77 @@ def analyse(phases: dict[str, PhaseObservation]) -> list[Delta]:
         )
     )
     deltas.extend(_power_series_deltas(phases))
+    deltas.extend(
+        _chameleon_deltas(
+            {PHASE_TEST: test_by_key, PHASE_POST_TEST: post_by_key}, present_in_for
+        )
+    )
     return [d for d in deltas if not _is_ephemeral_listener_churn(d)]
+
+
+def _chameleon_deltas(
+    events_by_phase: dict[str, dict[tuple[str, str], list[ProbeEvent]]],
+    present_in_for: dict[tuple[str, str], dict[str, bool]],
+) -> list[Delta]:
+    """A device that presented more than one distinct USB "shape" - a
+    different vendor/model ID or interface-class set - across its own
+    add/change events within a single phase.
+
+    Every other pass only ever compares two snapshot points per phase (start,
+    end); a device that drops off the bus, re-enumerates as something else,
+    drops again, and comes back as its original shape looks identical at both
+    ends and is invisible to all of them. The udev event stream is already
+    captured continuously (not just at boundaries) and already carries
+    ID_USB_INTERFACES / ID_VENDOR_ID / ID_MODEL_ID on every add/change event -
+    so this needs no new sampling, just diffing a device's own events against
+    each other.
+    """
+
+    absent = {PHASE_BASELINE: False, PHASE_TEST: False, PHASE_POST_TEST: False}
+    out: list[Delta] = []
+    for phase, events_by_key in events_by_phase.items():
+        for key, key_events in events_by_key.items():
+            kind, identity = key
+            descriptor_events = [
+                e for e in key_events if e.action in _CHAMELEON_ACTIONS
+            ]
+            # a fully-populated shape only - a partial read (one field still
+            # settling right after plug-in) must not look like a different one
+            shapes: dict[tuple, ProbeEvent] = {}
+            for event in descriptor_events:
+                shape = tuple(event.attributes.get(k) for k in _CHAMELEON_KEYS)
+                if all(shape):
+                    shapes.setdefault(shape, event)
+            if len(shapes) < 2:
+                continue
+
+            first_ev, second_ev = list(shapes.values())[:2]
+            changes = [
+                AttributeChange(
+                    key=k,
+                    before=first_ev.attributes.get(k),
+                    after=second_ev.attributes.get(k),
+                )
+                for k in _CHAMELEON_KEYS
+                if first_ev.attributes.get(k) != second_ev.attributes.get(k)
+            ]
+            out.append(
+                Delta(
+                    change="modified",
+                    kind=kind,
+                    identity=identity,
+                    label=(
+                        f"{descriptor_events[-1].label} presented {len(shapes)} "
+                        f"different USB descriptor shapes during {phase}"
+                    ),
+                    first_seen_phase=phase,
+                    present_in=present_in_for.get(key, absent),
+                    attributes={"chameleon_shape_count": len(shapes)},
+                    attribute_changes=changes,
+                    related_events=descriptor_events,
+                )
+            )
+    return out
 
 
 def _power_series_deltas(phases: dict[str, PhaseObservation]) -> list[Delta]:

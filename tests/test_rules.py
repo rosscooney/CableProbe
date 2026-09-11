@@ -278,6 +278,21 @@ def test_brief_hid_implant_is_caught_end_to_end(phase_builder):
     assert "keystroke-injection-detected" in ids  # the injection itself
 
 
+def test_chameleon_rule_fires_on_a_shape_count_attribute():
+    rs = RuleSet.default()
+    d = _delta(
+        KIND_USB_DEVICE, "usb:1-2", change="modified",
+        chameleon_shape_count=2,
+    )
+    ids = {f.rule_id for f in rs.evaluate([d])}
+    assert "usb-chameleon-reenumeration" in ids
+
+    # a plain modified delta with no chameleon signal must not fire it
+    d2 = _delta(KIND_USB_DEVICE, "usb:1-2", change="modified")
+    ids2 = {f.rule_id for f in rs.evaluate([d2])}
+    assert "usb-chameleon-reenumeration" not in ids2
+
+
 def test_persistence_rules_cover_post_test_deletion_and_unreadable():
     rs = RuleSet.default()
 
