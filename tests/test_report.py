@@ -190,6 +190,22 @@ def test_render_summary_plain(phase_builder, capsys):
     assert "HID keyboard appeared" in text
 
 
+def test_not_enabled_probes_are_disclosed_not_silent(phase_builder, capsys):
+    report = _report(phase_builder)
+    report.metadata = report.metadata.model_copy(
+        update={"probes_not_enabled": ["connections", "power", "wifi_scan"]}
+    )
+
+    plain = render_summary(report, plain=True)
+    assert "not run:  connections, power, wifi_scan" in plain
+    assert "power draw was not measured this session" in plain
+
+    render_summary(report)  # rich path must not raise
+    out = capsys.readouterr().out
+    assert "Optional probes not enabled: connections, power, wifi_scan" in out
+    assert "power draw was not measured this session" in out
+
+
 def test_unavailable_probes_roundtrip_and_render(tmp_path, phase_builder, capsys):
     report = _report(phase_builder)
     loaded = load_report(write_report(report, tmp_path))

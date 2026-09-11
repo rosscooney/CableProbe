@@ -204,6 +204,19 @@ async def test_unavailable_probe_is_skipped_not_warned(fast_config, monkeypatch)
     assert any("usbc_pd" in u for u in report.metadata.probes_unavailable)
 
 
+async def test_reports_which_optional_probes_were_never_enabled(fast_config, monkeypatch):
+    working = FakeProbe(fast_config, 0.0, [[]] * 6)
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes", lambda config, session_start: [working]
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    # fast_config never touched probes.enabled -> the built-in default, so the
+    # optional ones (off by default) are the gap
+    assert report.metadata.probes_not_enabled == ["connections", "power", "wifi_scan"]
+
+
 async def test_review_warning_only_when_a_secret_was_masked(fast_config, monkeypatch):
     from cableprobe.models import KIND_PROCESS
 

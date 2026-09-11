@@ -224,6 +224,12 @@ class SessionMetadata(BaseModel):
     #: Probes skipped because the host does not expose the needed interface
     #: (no Type-C class, no /sys/bus/pci, ...). Expected, not a problem.
     probes_unavailable: list[str] = Field(default_factory=list)
+    #: Known probes that were simply never turned on (``probes.enabled`` did
+    #: not name them) - distinct from `probes_unavailable`: the interface may
+    #: well exist, nobody asked CableProbe to look. A clean report says nothing
+    #: about what these would have seen; e.g. with `power` off, "did the cable
+    #: actually deliver current" is unanswered, not "no".
+    probes_not_enabled: list[str] = Field(default_factory=list)
     #: Probes that were enabled and available but misbehaved (failed to start).
     probe_warnings: list[str] = Field(default_factory=list)
     #: Probes that started but raised while taking a snapshot, with how many of
@@ -236,7 +242,9 @@ class SessionMetadata(BaseModel):
     def _clean_str(cls, value: str) -> str:
         return clean_text(value, max_len=256)
 
-    @field_validator("probes_used", "probes_unavailable", "probe_warnings")
+    @field_validator(
+        "probes_used", "probes_unavailable", "probes_not_enabled", "probe_warnings"
+    )
     @classmethod
     def _clean_str_list(cls, value: list[str]) -> list[str]:
         return [clean_text(v, max_len=500) for v in value]

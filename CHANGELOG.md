@@ -15,6 +15,17 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- The report now says which **optional probes were never turned on**
+  (`power`, `wifi_scan`, `connections` - off by default) instead of staying
+  silent about them. A clean session previously read the same whether or not
+  power draw was actually measured; now, if `power` was not enabled, the
+  report says so explicitly - "power draw was not measured this session" - so
+  a session where a cable/port supplied power is never confused with one where
+  CableProbe simply didn't look. New `SessionMetadata.probes_not_enabled`
+  field.
+
 ## [0.4.7] - 2026-09-10
 
 ### Added

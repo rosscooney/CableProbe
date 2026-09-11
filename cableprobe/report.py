@@ -171,6 +171,17 @@ def render_summary(report: SessionReport, *, plain: bool = False) -> str:
             f"[dim]Probes skipped (interface not present on this host): {names}[/dim]"
         )
 
+    if meta.probes_not_enabled:
+        console.print(
+            f"[dim]Optional probes not enabled: {', '.join(meta.probes_not_enabled)}[/dim]"
+        )
+        if "power" in meta.probes_not_enabled:
+            console.print(
+                "[dim]  power draw was not measured this session - wire an "
+                "inline INA219 and enable the `power` probe to see whether "
+                "the cable/port delivered current, and how much[/dim]"
+            )
+
     if meta.probe_warnings:
         console.print("[yellow]Probe warnings:[/yellow]")
         for warning in meta.probe_warnings:
@@ -290,6 +301,15 @@ def _plain_summary(report: SessionReport) -> list[str]:
     if meta.probes_unavailable:
         names = ", ".join(w.split(":", 1)[0] for w in meta.probes_unavailable)
         lines.append(f"  skipped:  {names} (interface not present on this host)")
+    if meta.probes_not_enabled:
+        lines.append(
+            f"  not run:  {', '.join(meta.probes_not_enabled)} (optional, off by default)"
+        )
+        if "power" in meta.probes_not_enabled:
+            lines.append(
+                "            power draw was not measured this session - enable "
+                "the `power` probe (needs an inline INA219) to see it"
+            )
     for warning in meta.probe_warnings:
         lines.append(f"  warning:  {warning}")
     if report.summary.get("coverage") == "partial":

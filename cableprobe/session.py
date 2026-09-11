@@ -29,7 +29,7 @@ from cableprobe.models import (
     utcnow,
 )
 from cableprobe.knowledge import Allowlist, ImplantList, apply_allowlist
-from cableprobe.probes import Probe, build_probes
+from cableprobe.probes import PROBE_REGISTRY, Probe, build_probes
 from cableprobe.redact import MASK as _REDACT_MASK
 from cableprobe.rules import _SEVERITY_RANK, RuleSet, consolidate
 from cableprobe.system_info import collect_host_info
@@ -452,6 +452,7 @@ async def run_session(
         config=config.as_metadata(),
         probes_used=[p.name for p in probes],
         probes_unavailable=unavailable,
+        probes_not_enabled=sorted(set(PROBE_REGISTRY) - set(config.probes.enabled)),
         probe_warnings=warnings,
         probe_snapshot_errors=_snapshot_error_summary(phases),
     )
