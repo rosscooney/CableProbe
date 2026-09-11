@@ -24,6 +24,7 @@ from cableprobe.models import (
     KIND_PCI_DEVICE,
     KIND_SERIAL_DEVICE,
     KIND_USB_DEVICE,
+    KIND_USB_INTERFACE,
     KIND_USB_PD,
     KIND_VIDEO_DEVICE,
     Observation,
@@ -99,6 +100,12 @@ _INTERESTING_ATTR_KEYS = (
 
 
 def kind_for_device(subsystem: str | None, devtype: str | None) -> str:
+    # A usb-subsystem event at DEVTYPE usb_interface is one interface of a
+    # device, not a device in its own right (e.g. the CDC-ECM/CDC-Data pair of
+    # a USB ethernet gadget) - _SUBSYSTEM_KIND's "usb" entry is for the device
+    # itself (DEVTYPE usb_device).
+    if subsystem == "usb" and devtype == "usb_interface":
+        return KIND_USB_INTERFACE
     if subsystem in _SUBSYSTEM_KIND:
         return _SUBSYSTEM_KIND[subsystem]
     if subsystem:
@@ -108,6 +115,14 @@ def kind_for_device(subsystem: str | None, devtype: str | None) -> str:
 
 def _device_identity(device) -> str:
     props = device
+    # A usb_interface device (one interface of a multi-interface gadget, e.g.
+    # the CDC-ECM/CDC-Data pair behind a USB ethernet adapter) has its own
+    # stable bus-port:config.interface sys_name (``3-1:1.0``) - key on that
+    # directly rather than falling through to the vendor/model or INTERFACE
+    # branches below, which are for the *device*, not one of its interfaces.
+    if device.subsystem == "usb" and props.get("DEVTYPE") == "usb_interface":
+        sys_name = getattr(device, "sys_name", None)
+        return f"usbif:{sys_name}" if sys_name else (device.sys_path or "usb_interface")
     vendor = props.get("ID_VENDOR_ID")
     model = props.get("ID_MODEL_ID")
     serial = props.get("ID_SERIAL_SHORT")
@@ -121,9 +136,13 @@ def _device_identity(device) -> str:
         if serial:
             base += f":{serial}"
         return base
-    interface = props.get("INTERFACE")
-    if interface:
-        return f"net:{interface}"
+    # INTERFACE is a netdev name (eth1) only for the net subsystem; on a
+    # usb_interface device it is instead the class/subclass/protocol triple
+    # (e.g. "10/0/0") and must not be mistaken for one.
+    if device.subsystem == "net":
+        interface = props.get("INTERFACE")
+        if interface:
+            return f"net:{interface}"
     devname = props.get("DEVNAME")
     if devname:
         return devname

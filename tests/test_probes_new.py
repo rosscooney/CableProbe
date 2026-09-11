@@ -82,13 +82,17 @@ class FakeUdevDevice:
     """Minimal stand-in for a pyudev.Device: a property dict plus a few attrs."""
 
     def __init__(
-        self, props: dict, *, sys_name="dev0", driver=None, parent=object(), usb_parent=None
+        self, props: dict, *, sys_name="dev0", driver=None, parent=object(),
+        usb_parent=None, subsystem="usb", sys_path=None, action="add",
     ):
         self._props = props
         self.sys_name = sys_name
         self.driver = driver
         self.parent = parent
         self._usb_parent = usb_parent
+        self.subsystem = subsystem
+        self.sys_path = sys_path or f"/sys/devices/fake/{sys_name}"
+        self.action = action
 
     def get(self, key, default=None):
         return self._props.get(key, default)
@@ -1052,6 +1056,53 @@ def test_udev_event_is_interesting_filters_kernel_internal_subsystems():
         assert event_is_interesting(s, None) is False
     # block partitions are covered by their parent disk
     assert event_is_interesting("block", "partition") is False
+
+
+def test_kind_for_device_distinguishes_usb_interface_from_usb_device():
+    from cableprobe.models import KIND_USB_DEVICE, KIND_USB_INTERFACE
+    from cableprobe.probes.udev_monitor import kind_for_device
+
+    assert kind_for_device("usb", "usb_device") == KIND_USB_DEVICE
+    assert kind_for_device("usb", "usb_interface") == KIND_USB_INTERFACE
+
+
+def test_device_identity_keys_a_usb_interface_on_its_own_sys_name():
+    from cableprobe.probes.udev_monitor import _device_identity
+
+    # a CDC-ECM interface of a USB ethernet gadget: no ID_VENDOR_ID/MODEL_ID of
+    # its own, and INTERFACE holds the class/subclass/protocol triple - not a
+    # netdev name. Must not be mistaken for a net-subsystem event.
+    iface = FakeUdevDevice(
+        {"DEVTYPE": "usb_interface", "INTERFACE": "2/6/0"},
+        sys_name="3-1:1.0", subsystem="usb",
+    )
+    assert _device_identity(iface) == "usbif:3-1:1.0"
+
+
+def test_device_identity_interface_fallback_is_net_subsystem_only():
+    from cableprobe.probes.udev_monitor import _device_identity
+
+    net_dev = FakeUdevDevice({"INTERFACE": "eth1"}, sys_name="eth1", subsystem="net")
+    assert _device_identity(net_dev) == "net:eth1"
+
+    # a usb_interface carrying an INTERFACE-shaped prop must never collide with
+    # a real net device's identity
+    iface = FakeUdevDevice(
+        {"DEVTYPE": "usb_interface", "INTERFACE": "10/0/0"},
+        sys_name="3-1:1.1", subsystem="usb",
+    )
+    assert _device_identity(iface) != "net:10/0/0"
+    assert not _device_identity(iface).startswith("net:")
+
+
+def test_device_identity_usb_device_still_keyed_on_topology():
+    from cableprobe.probes.udev_monitor import _device_identity
+
+    dev = FakeUdevDevice(
+        {"ID_VENDOR_ID": "0461", "ID_MODEL_ID": "0010", "DEVTYPE": "usb_device"},
+        sys_name="1-2", subsystem="usb",
+    )
+    assert _device_identity(dev) == "usb:1-2"
 
 
 def test_keystroke_reader_quarantines_a_wedged_device_instead_of_busy_looping(monkeypatch):

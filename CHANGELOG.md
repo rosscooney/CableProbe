@@ -15,6 +15,19 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- A multi-interface USB gadget's udev events (e.g. the CDC-ECM/CDC-Data pair
+  behind a USB ethernet adapter) no longer get mis-typed as `usb_device` with
+  a garbage `net:<class>/<subclass>/<protocol>` identity. `kind_for_device()`
+  now maps a `usb` subsystem event at `DEVTYPE=usb_interface` to
+  `usb_interface`, keyed on its own `usbif:<sys_name>`; the `INTERFACE`
+  property (a netdev name on `net`, but a class-triple on `usb_interface`) is
+  only read as a netdev name for `net`-subsystem events. Previously one
+  physical adapter could appear as up to three "devices", inflating
+  `transient-device-during-test` and `unexpected-usb-device-appeared`.
+  Reported from a real ethernet-adapter test run.
+
 ### Added
 
 - The report now says which **optional probes were never turned on**
