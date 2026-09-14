@@ -88,6 +88,33 @@ def parse_outbound(text: str, *, ipv6: bool = False) -> list[Observation]:
     return observations
 
 
+#: Cap on distinct (proto, remote) keys tracked in one drain window. Every
+#: other buffer in this codebase is bounded (the power probe's ring, the
+#: command-output cap, the per-phase event budget); this dict was the
+#: exception - a host with real traffic (against the probe's own
+#: isolated-host caveat), or a device that behaves like a scanner/flooder,
+#: could otherwise grow it without limit for the length of a whole phase.
+#: Once the cap is hit, a remote already being tracked keeps accumulating -
+#: only brand-new remotes stop being added - so an actual beaconing pattern is
+#: never the one thing that gets dropped.
+_MAX_TRACKED_REMOTES = 2000
+
+
+def _accumulate(
+    counts: dict[tuple[str, str], int], seen: set[tuple[str, str]], *, cap: int
+) -> bool:
+    """Bump ``counts[key]`` for each ``key`` in ``seen``, refusing to grow past
+    ``cap`` distinct keys. Returns True if any new key was refused."""
+
+    capped = False
+    for key in seen:
+        if key not in counts and len(counts) >= cap:
+            capped = True
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    return capped
+
+
 def active_remotes(text: str, *, ipv6: bool = False) -> set[tuple[str, str]]:
     """``{(proto, remote_ep), ...}`` of routable remotes with an active
     connection - the lightweight read used for frequency sampling, without
@@ -119,6 +146,7 @@ class ConnectionProbe(Probe):
         self._lock = threading.Lock()
         self._counts: dict[tuple[str, str], int] = {}
         self._sample_count = 0
+        self._remotes_capped = False
         self._sampler_stop = threading.Event()
         self._sampler: threading.Thread | None = None
 
@@ -142,14 +170,24 @@ class ConnectionProbe(Probe):
             seen |= active_remotes(text, ipv6=ipv6)
         with self._lock:
             self._sample_count += 1
-            for key in seen:
-                self._counts[key] = self._counts.get(key, 0) + 1
+            hit_cap = _accumulate(self._counts, seen, cap=_MAX_TRACKED_REMOTES)
+            warn = hit_cap and not self._remotes_capped
+            if warn:
+                self._remotes_capped = True
+        if warn:
+            log.warning(
+                "connections probe: more than %d distinct remotes seen in one "
+                "window - frequency counts for further new ones are not tracked "
+                "until the next phase boundary",
+                _MAX_TRACKED_REMOTES,
+            )
 
     def _drain_window(self) -> tuple[dict[tuple[str, str], int], int]:
         with self._lock:
             counts, total = dict(self._counts), self._sample_count
             self._counts.clear()
             self._sample_count = 0
+            self._remotes_capped = False
         return counts, total
 
     def _run_sampler(self) -> None:

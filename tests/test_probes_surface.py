@@ -254,6 +254,26 @@ def test_active_remotes_matches_the_routable_set_parse_outbound_uses():
     }
 
 
+def test_accumulate_caps_new_keys_but_keeps_bumping_existing_ones():
+    from cableprobe.probes.connections import _accumulate
+
+    counts: dict = {}
+    assert _accumulate(counts, {("tcp", "1.1.1.1:443")}, cap=2) is False
+    assert _accumulate(counts, {("tcp", "2.2.2.2:443")}, cap=2) is False
+    assert counts == {("tcp", "1.1.1.1:443"): 1, ("tcp", "2.2.2.2:443"): 1}
+
+    # cap reached: a brand-new key is refused...
+    hit = _accumulate(counts, {("tcp", "3.3.3.3:443")}, cap=2)
+    assert hit is True
+    assert ("tcp", "3.3.3.3:443") not in counts
+
+    # ...but an already-tracked key - the one that matters for "repeated" -
+    # keeps accumulating past the cap
+    hit2 = _accumulate(counts, {("tcp", "1.1.1.1:443")}, cap=2)
+    assert hit2 is False
+    assert counts[("tcp", "1.1.1.1:443")] == 2
+
+
 def test_connection_probe_emits_frequency_observations(tmp_path, monkeypatch):
     from cableprobe.config import Config
     from cableprobe.probes import connections as conn_mod
@@ -281,6 +301,29 @@ def test_connection_probe_emits_frequency_observations(tmp_path, monkeypatch):
 
     # a second snapshot with nothing sampled in between emits no frequency obs
     assert all(o.kind != KIND_CONNECTION_FREQUENCY for o in probe.snapshot())
+
+
+def test_connection_probe_caps_tracked_remotes(tmp_path, monkeypatch):
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_PROC_NET_TCP, encoding="utf-8")  # 2 distinct routable remotes
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+    monkeypatch.setattr(conn_mod, "_MAX_TRACKED_REMOTES", 1)
+
+    probe = ConnectionProbe(Config(), 0.0)
+    probe._sample_once()
+    assert len(probe._counts) == 1  # the second remote was refused, not tracked
+    assert probe._remotes_capped is True
+
+    # draining resets the per-window cap flag for the next phase
+    probe._drain_window()
+    assert probe._remotes_capped is False
 
 
 async def test_connection_probe_sampler_thread_starts_and_stops(tmp_path, monkeypatch):

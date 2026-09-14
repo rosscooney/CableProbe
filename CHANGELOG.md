@@ -17,6 +17,16 @@ Each release is also published to
 
 ### Fixed
 
+- The `connections` probe's frequency tracker (`_counts`) had no size cap,
+  unlike every other buffer in the codebase (the power probe's ring, the
+  command-output cap, the per-phase event budget). A host with real traffic
+  (against the probe's own isolated-host caveat), or a device that behaves
+  like a scanner/flooder, could grow it without limit for the length of a
+  whole phase before the next boundary drained it. Capped at
+  `_MAX_TRACKED_REMOTES` (2000) distinct remotes per window; a remote already
+  being tracked keeps accumulating past the cap, so an actual beaconing
+  pattern is never the one thing that gets dropped - only brand-new remotes
+  stop being added, with a one-time warning logged when that happens.
 - A probe whose `availability()` raises (rather than returning `ok=False`) no
   longer aborts session startup before already-started probes can be stopped.
   `_start_probes()` ran `availability()` outside any try/except, and
