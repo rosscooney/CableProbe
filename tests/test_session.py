@@ -217,6 +217,50 @@ async def test_reports_which_optional_probes_were_never_enabled(fast_config, mon
     assert report.metadata.probes_not_enabled == ["connections", "power", "wifi_scan"]
 
 
+async def test_start_probes_survives_a_raising_availability_check(fast_config):
+    from cableprobe.session import _start_probes, _stop_probes
+
+    stopped: list[str] = []
+
+    class Tracked(Probe):
+        name = "tracked"
+
+        def availability(self):
+            return ProbeAvailability(ok=True)
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            stopped.append(self.name)
+
+        def snapshot(self):
+            return []
+
+    class Bomb(Probe):
+        name = "bomb"
+
+        def availability(self):
+            raise RuntimeError("boom")
+
+        def snapshot(self):
+            return []
+
+    tracked = Tracked(fast_config, 0.0)
+    bomb = Bomb(fast_config, 0.0)
+    working = FakeProbe(fast_config, 0.0, [[]] * 6)
+
+    # bomb sits between two probes that must be unaffected by its crash
+    active, unavailable, warnings = await _start_probes([tracked, bomb, working])
+    assert [p.name for p in active] == ["tracked", "fake"]
+    assert any("bomb" in w and "availability check failed" in w for w in warnings)
+    assert unavailable == []
+
+    # and _stop_probes() is reachable - tracked's background work actually stops
+    await _stop_probes(active)
+    assert stopped == ["tracked"]
+
+
 async def test_review_warning_only_when_a_secret_was_masked(fast_config, monkeypatch):
     from cableprobe.models import KIND_PROCESS
 

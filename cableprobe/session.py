@@ -310,13 +310,25 @@ async def _start_probes(
     snapshots or per-tick errors); that is an expected condition on hosts that
     do not expose a given interface, so it is reported separately from real
     failures.
+
+    Every probe in the loop is handled independently: this function must never
+    itself raise. ``run_session()`` calls it *before* the try/finally that
+    stops whatever started, so a probe whose ``availability()`` raises after an
+    earlier probe's background thread (power / connections) is already running
+    would otherwise skip ``_stop_probes()`` entirely and leak that thread.
     """
 
     active: list[Probe] = []
     unavailable: list[str] = []
     warnings: list[str] = []
     for probe in probes:
-        availability = probe.availability()
+        try:
+            availability = probe.availability()
+        except Exception as exc:  # noqa: BLE001
+            msg = f"{probe.name}: availability check failed ({exc})"
+            log.warning(msg)
+            warnings.append(msg)
+            continue
         if not availability.ok:
             msg = f"{probe.name}: {availability.detail}"
             log.info("probe %s unavailable on this host: %s", probe.name, availability.detail)

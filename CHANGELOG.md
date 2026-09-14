@@ -15,6 +15,18 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- A probe whose `availability()` raises (rather than returning `ok=False`) no
+  longer aborts session startup before already-started probes can be stopped.
+  `_start_probes()` ran `availability()` outside any try/except, and
+  `run_session()` calls it *before* the try/finally that calls
+  `_stop_probes()` - so a later probe's crash there could leak an earlier
+  probe's background sampler thread (`power` / `connections`) with no `.stop()`
+  ever called on it. `_start_probes()` now treats a raising `availability()`
+  the same as a raising `start()`: logged as a warning, that probe skipped,
+  every other probe unaffected.
+
 ## [0.4.9] - 2026-09-14
 
 ### Fixed
