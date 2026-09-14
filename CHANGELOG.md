@@ -37,6 +37,16 @@ Each release is also published to
   `renameat` / `unlinkat`), so a directory replaced *after* the check passes
   can no longer redirect the write - the residual race a pathname-only check
   could never close on its own.
+- The `hid_report` probe's descriptor parser didn't recognise HID's reserved
+  "long item" prefix (`0xFE`) and decoded it as a short item instead,
+  misreading its data-length and tag bytes as a value and desyncing every
+  item for the rest of the descriptor. Real hardware essentially never uses
+  long items - which is exactly why a device could plant one deliberately to
+  hide a keyboard/pointer usage declaration from
+  `hid-descriptor-can-inject-keystrokes` inside what would then be misread as
+  garbage. Long items are now skipped correctly (data length + tag + payload,
+  per HID 1.11 sec 6.2.2.3), and a descriptor that uses one at all is now
+  itself surfaced as evidence (`has_long_items` / `long_item_count`).
 
 ### Changed
 

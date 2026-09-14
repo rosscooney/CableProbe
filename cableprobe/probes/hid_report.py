@@ -39,6 +39,12 @@ _GD_KEYBOARD = 0x06
 _GD_KEYPAD = 0x07
 
 
+#: HID short-item prefix byte reserved to mean "this is a long item instead"
+#: (HID 1.11 sec 6.2.2.3): bSize=10, bType=11, bTag=1111 - a combination no
+#: short item ever legitimately uses.
+_LONG_ITEM_PREFIX = 0xFE
+
+
 def parse_hid_report_descriptor(data: bytes) -> dict:
     """Decode a raw HID report descriptor into a capability summary."""
 
@@ -47,12 +53,34 @@ def parse_hid_report_descriptor(data: bytes) -> dict:
     page: int | None = None
     has_output = False
     has_input = False
+    long_item_count = 0
 
     i = 0
     n = len(data)
     while i < n:
         prefix = data[i]
         i += 1
+
+        if prefix == _LONG_ITEM_PREFIX:
+            # Long item: prefix, then a 1-byte data length, then a 1-byte
+            # long item tag, then that many bytes of data - a completely
+            # different layout from the short-item bSize/bType/bTag encoding
+            # below. Decoding it as a short item (the previous behaviour)
+            # reads the wrong bytes as a "value" and desyncs every item after
+            # it for the rest of the descriptor. Long items are essentially
+            # unused by real hardware, but that makes them exactly the kind
+            # of adversarial construction this parser exists to not be fooled
+            # by: a device could plant one to hide a keyboard/pointer usage
+            # declaration inside what would then be misread as garbage.
+            long_item_count += 1
+            if i >= n:
+                break  # truncated long-item header - nothing left to parse safely
+            long_data_size = data[i]
+            i += 1  # the data-size byte just read
+            i += 1  # the long item tag byte (no long-item tag matters here)
+            i += long_data_size  # skip the item's data payload
+            continue
+
         size = prefix & 0x03
         size = 4 if size == 3 else size
         value = int.from_bytes(data[i : i + size], "little") if size else 0
@@ -88,6 +116,10 @@ def parse_hid_report_descriptor(data: bytes) -> dict:
         "has_input_report": has_input,
         "has_output_report": has_output,
         "descriptor_bytes": n,
+        # real hardware essentially never uses HID long items; a descriptor
+        # that does is itself worth a human glance
+        "has_long_items": long_item_count > 0,
+        "long_item_count": long_item_count,
     }
 
 

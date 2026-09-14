@@ -68,6 +68,55 @@ def test_parse_vendor_page_with_keyboard():
     assert "0xff00" in s["vendor_usage_pages"]
 
 
+def test_parse_hid_report_descriptor_no_long_items_by_default():
+    s = parse_hid_report_descriptor(_KEYBOARD_RDESC)
+    assert s["has_long_items"] is False
+    assert s["long_item_count"] == 0
+
+
+def test_parse_hid_report_descriptor_resyncs_after_a_long_item():
+    """The HID spec reserves prefix 0xFE to mean "long item, not short item":
+    a 1-byte data length, a 1-byte long item tag, then that many bytes of
+    data - a completely different layout from a short item's bSize/bType/
+    bTag prefix. Misreading it as a short item (the old behaviour) desyncs
+    every item after it - the item boundary lands mid-stream instead of at
+    the start of the next real item. Chosen deliberately large enough that a
+    parser which merely consumed 2 "value" bytes per short-item's own size
+    field, instead of the declared long-item length, cannot land back on the
+    real Usage Page by coincidence."""
+
+    long_item = bytes([0xFE, 10, 0x00]) + bytes(10)  # data_size=10, tag=0, 10 bytes payload
+    descriptor = long_item + _KEYBOARD_RDESC  # a real, unambiguous keyboard usage right after it
+
+    s = parse_hid_report_descriptor(descriptor)
+    assert s["has_long_items"] is True
+    assert s["long_item_count"] == 1
+    assert s["has_keyboard_usage"] is True  # the real item after it was still found
+
+
+def test_parse_hid_report_descriptor_multiple_long_items():
+    long_item = bytes([0xFE, 2, 0x00, 0xAA, 0xBB])
+    descriptor = long_item + long_item + _MOUSE_RDESC
+    s = parse_hid_report_descriptor(descriptor)
+    assert s["long_item_count"] == 2
+    assert s["has_pointer_usage"] is True
+
+
+def test_parse_hid_report_descriptor_truncated_long_item_header_does_not_crash():
+    # just the long-item prefix, no data-size byte at all
+    s = parse_hid_report_descriptor(bytes([0xFE]))
+    assert s["long_item_count"] == 1
+    assert s["has_keyboard_usage"] is False
+
+
+def test_parse_hid_report_descriptor_long_item_declaring_more_data_than_present():
+    # data_size says 50 bytes follow; only a couple actually do. Must not
+    # crash or attempt to index past the end - the arithmetic-only advance
+    # naturally stops at the next while-loop bounds check.
+    s = parse_hid_report_descriptor(bytes([0xFE, 50, 0x00, 0x01, 0x02]))
+    assert s["long_item_count"] == 1
+
+
 def test_scan_hid_reports_flags_unlabelled_keyboard(tmp_path):
     d = tmp_path / "0003:04F2:0939.0005"
     d.mkdir()
