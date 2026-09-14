@@ -561,6 +561,9 @@ def test_process_probe_filters_noise_and_own_children(monkeypatch):
            "username": "root", "cmdline": []}),  # either spelling -> dropped
         P({"pid": 17, "name": "udev-worker", "ppid": 1, "create_time": now,
            "username": "root", "cmdline": ["udev-worker", "--payload"]}),  # real cmdline -> KEPT
+        P({"pid": 18, "name": "(udev-worker)", "ppid": 1, "create_time": now,
+           "username": "root", "cmdline": ["(udev-worker)"]}),  # real systemd: argv == name, not
+           # empty -> still dropped (this is what a real Pi actually reports)
     ]
     monkeypatch.setattr(
         "cableprobe.probes.processes.psutil.process_iter", lambda fields: procs
@@ -577,6 +580,9 @@ def test_is_udev_worker():
 
     assert _is_udev_worker("udev-worker", []) is True
     assert _is_udev_worker("(udev-worker)", []) is True
+    # real systemd rewrites argv too - cmdline is the name again, not empty
+    assert _is_udev_worker("(udev-worker)", ["(udev-worker)"]) is True
+    assert _is_udev_worker("udev-worker", ["udev-worker"]) is True
     # a real command line -> not silently dropped, even with this name
     assert _is_udev_worker("udev-worker", ["udev-worker", "--foo"]) is False
     assert _is_udev_worker("sshd", []) is False

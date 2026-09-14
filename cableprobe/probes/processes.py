@@ -72,18 +72,26 @@ def _is_kernel_thread(
 
 #: systemd (247+) forks one short-lived worker per uevent and renames it to
 #: this literally - parentheses included, it is the process's actual comm, not
-#: formatting added here - wiping its argv in the process. It is udev's own
-#: reaction to *any* device event, including ones this tool generates just by
-#: enumerating, not software the cable started, and there are often a dozen+
-#: of them per plug/unplug: they used to flood the phase-diff table and falsely
-#: trip transient-device-during-test. Only skipped together with an empty
-#: cmdline, like the kernel-thread fallback below - a process that merely
-#: names itself this while keeping a real command line is still reported.
+#: formatting added here. It is udev's own reaction to *any* device event,
+#: including ones this tool generates just by enumerating, not software the
+#: cable started, and there are often a dozen+ of them per plug/unplug: they
+#: used to flood the phase-diff table and falsely trip
+#: transient-device-during-test.
 _UDEV_WORKER_NAMES = ("udev-worker", "(udev-worker)")
 
 
 def _is_udev_worker(name: str, cmdline: list[str]) -> bool:
-    return name in _UDEV_WORKER_NAMES and not cmdline
+    # In the wild systemd rewrites argv to match, so cmdline is NOT reliably
+    # empty the way a kernel thread's is (observed: ["(udev-worker)"], not
+    # []) - checking only for an empty cmdline let it straight through. A
+    # cmdline that is just the name repeated carries no evidence beyond the
+    # name itself, so it is treated the same as empty; a process that merely
+    # names itself this while keeping a *different*, real command line is
+    # still reported.
+    if name not in _UDEV_WORKER_NAMES:
+        return False
+    meaningful = [arg for arg in cmdline if arg not in _UDEV_WORKER_NAMES]
+    return not meaningful
 
 
 def _is_trivial_plumbing(name: str, cmdline: list[str]) -> bool:

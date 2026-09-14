@@ -15,6 +15,17 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Fixed
+
+- The `udev-worker` process filter added in 0.4.8 didn't actually fire on real
+  hardware: it only skipped a process named `udev-worker` / `(udev-worker)`
+  when its command line was empty, but in the wild systemd rewrites argv to
+  match the renamed comm too, so the real command line is `["(udev-worker)"]`,
+  not `[]`. A command line that carries nothing beyond a repeat of the process
+  name is now treated the same as an empty one; a process that keeps a
+  genuinely different command line while using this name is still reported.
+  Reported from a real Raspberry Pi 5 test run.
+
 ## [0.4.8] - 2026-09-11
 
 ### Added
