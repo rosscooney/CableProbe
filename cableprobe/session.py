@@ -302,14 +302,24 @@ async def _observe_phase(
 
 async def _start_probes(
     probes: list[Probe],
-) -> tuple[list[Probe], list[str], list[str]]:
+) -> tuple[list[Probe], list[str], list[str], list[str]]:
     """Start the probes that can run on this host.
 
-    Returns ``(active_probes, unavailable_notes, warnings)``. A probe whose
-    ``availability()`` is not ``ok`` is dropped (it would only contribute empty
-    snapshots or per-tick errors); that is an expected condition on hosts that
-    do not expose a given interface, so it is reported separately from real
-    failures.
+    Returns ``(active_probes, unavailable_notes, warnings, failed_names)``. A
+    probe whose ``availability()`` is not ``ok`` is dropped (it would only
+    contribute empty snapshots or per-tick errors); that is an expected
+    condition on hosts that do not expose a given interface, so it is
+    reported separately from real failures.
+
+    ``failed_names`` is the probe names behind *every* unexpected failure in
+    this function - an ``availability()`` that raised, or a ``start()`` that
+    raised - so ``run_session()`` can fold both into coverage without
+    re-deriving the distinction by grepping ``warnings`` text (fragile: it is
+    easy to add a new warning message that happens to contain "failed to
+    start" and have it silently miscounted, or add a new failure path and
+    forget to route it into the substring check at all - which is exactly
+    what happened when the availability-exception path was added without
+    updating the caller's filter).
 
     Every probe in the loop is handled independently: this function must never
     itself raise. ``run_session()`` calls it *before* the try/finally that
@@ -321,6 +331,7 @@ async def _start_probes(
     active: list[Probe] = []
     unavailable: list[str] = []
     warnings: list[str] = []
+    failed: list[str] = []
     for probe in probes:
         try:
             availability = probe.availability()
@@ -328,6 +339,7 @@ async def _start_probes(
             msg = f"{probe.name}: availability check failed ({exc})"
             log.warning(msg)
             warnings.append(msg)
+            failed.append(probe.name)
             continue
         if not availability.ok:
             msg = f"{probe.name}: {availability.detail}"
@@ -340,9 +352,10 @@ async def _start_probes(
             msg = f"{probe.name}: failed to start ({exc})"
             log.warning(msg)
             warnings.append(msg)
+            failed.append(probe.name)
             continue
         active.append(probe)
-    return active, unavailable, warnings
+    return active, unavailable, warnings, failed
 
 
 async def _stop_probes(probes: list[Probe]) -> None:
@@ -377,7 +390,7 @@ async def run_session(
         session_name,
         [p.name for p in configured],
     )
-    probes, unavailable, warnings = await _start_probes(configured)
+    probes, unavailable, warnings, start_failures = await _start_probes(configured)
     if not probes:
         raise RuntimeError(
             "no enabled probe can run on this host - nothing to observe "
@@ -425,10 +438,13 @@ async def run_session(
     summary = build_summary(phases, deltas, findings)
 
     # Coverage is "partial" if *anything* left a gap this session: a probe that
-    # failed to start, a probe that errored while observing, an event storm that
-    # overran a buffer, or a probe that flagged its own data as incomplete
-    # (unreadable persistence file, truncated kernel log, ...).
-    start_failures = [w for w in warnings if "failed to start" in w]
+    # failed to start or whose availability check itself raised, a probe that
+    # errored while observing, an event storm that overran a buffer, or a
+    # probe that flagged its own data as incomplete (unreadable persistence
+    # file, truncated kernel log, a capped/failed connection sample, ...).
+    # start_failures came straight from _start_probes() - probe names, not a
+    # substring match against warning text - so a new failure path there is
+    # automatically covered here without also having to update a filter.
     incomplete = _incomplete_monitoring(phases)
     if (
         start_failures
@@ -438,7 +454,7 @@ async def run_session(
     ):
         summary["coverage"] = "partial"
     summary["coverage_gaps"] = {
-        "probes_failed_to_start": [w.split(":", 1)[0].strip() for w in start_failures],
+        "probes_failed_to_start": sorted(set(start_failures)),
         "probes_errored": sorted(_snapshot_error_summary(phases)),
         "events_dropped": summary.get("events_dropped", 0),
         "incomplete_data": incomplete,

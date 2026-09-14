@@ -329,6 +329,65 @@ def test_run_as_root_aborts_on_symlinked_output_dir(tmp_path, monkeypatch):
     assert "symlink" in result.output
 
 
+def test_run_as_root_rejects_a_symlinked_allowlist(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    secret = tmp_path / "secret.yaml"
+    secret.write_text("allow: [{vid: dead, pid: beef, name: injected}]")
+    (sessions / "allowlist.yaml").symlink_to(secret)
+
+    result = runner.invoke(
+        app,
+        ["run", "--auto", "--baseline", "1", "--test", "1", "--post-test", "1",
+         "--output-dir", str(sessions), "--name", "x"],
+    )
+    assert result.exit_code == 2
+    assert "allowlist" in result.output.lower()
+    assert "symlink" in result.output.lower()
+
+
+def test_run_as_root_with_a_trustworthy_allowlist_proceeds(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+    monkeypatch.setattr("cableprobe.cli._sudo_uid", lambda: None)
+
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "allowlist.yaml").write_text("allow: []")
+
+    result = runner.invoke(
+        app,
+        ["run", "--auto", "--baseline", "1", "--test", "1", "--post-test", "1",
+         "--output-dir", str(sessions), "--name", "x"],
+    )
+    assert result.exit_code == 0
+
+
+def test_allow_command_rejects_a_symlinked_allowlist_when_root(tmp_path, monkeypatch):
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    secret = tmp_path / "secret.yaml"
+    secret.write_text("allow: []")
+    (sessions / "allowlist.yaml").symlink_to(secret)
+
+    result = runner.invoke(
+        app, ["allow", "--output-dir", str(sessions), "--vid", "dead", "--pid", "beef"]
+    )
+    assert result.exit_code == 2
+    assert "symlink" in result.output.lower()
+
+
 def test_check_as_root_warns_on_world_writable_output_dir(tmp_path, monkeypatch):
     import os
 

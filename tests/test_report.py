@@ -13,6 +13,7 @@ from cableprobe.models import (
 )
 import pytest
 
+from cableprobe.fsutil import UnsafeDirectoryError
 from cableprobe.report import (
     REPORT_INDEX_NAME,
     exit_code_for,
@@ -107,6 +108,82 @@ def test_write_report_does_not_follow_a_symlinked_index(tmp_path, phase_builder)
     assert not link.is_symlink()  # replaced by the real index file
     card = next(iter(read_report_index(tmp_path / "sessions").values()))
     assert card["session_name"] == "unit-test"
+
+
+def test_write_report_rejects_a_symlinked_ancestor_directory(tmp_path, phase_builder):
+    real_parent = tmp_path / "real_parent"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked_parent"
+    linked_parent.symlink_to(real_parent)
+    target = linked_parent / "sessions"  # does not exist yet; the ancestor above it does
+
+    with pytest.raises(UnsafeDirectoryError, match="symlink"):
+        write_report(_report(phase_builder), target)
+
+    # nothing was created through the symlink
+    assert not (real_parent / "sessions").exists()
+
+
+def test_write_report_refuses_directory_replaced_after_verification(
+    tmp_path, phase_builder, monkeypatch
+):
+    """Deterministic simulation (no root, no real race needed) of the exact
+    TOCTOU window fd-anchoring closes: the directory passes the ancestor-chain
+    check, but by the time the actual open() happens it has been replaced
+    with a symlink elsewhere. The O_NOFOLLOW open inside open_verified_dir
+    must still refuse it - the write must not land through the swap."""
+
+    from cableprobe import fsutil as fsutil_mod
+
+    target = tmp_path / "sessions"
+    target.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    real_verify = fsutil_mod.verify_directory_chain
+
+    def swap_after_check(directory, **kwargs):
+        reasons = real_verify(directory, **kwargs)
+        target.rmdir()
+        target.symlink_to(elsewhere)
+        return reasons
+
+    monkeypatch.setattr(fsutil_mod, "verify_directory_chain", swap_after_check)
+    with pytest.raises(OSError):
+        write_report(_report(phase_builder), target)
+    # nothing was written into the directory the symlink now points to
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_write_report_closes_the_directory_descriptor_on_failure(
+    tmp_path, phase_builder, monkeypatch
+):
+    from cableprobe import report as report_mod
+
+    closed: list[int] = []
+    real_close = report_mod.os.close
+    monkeypatch.setattr(
+        report_mod.os, "close", lambda fd: (closed.append(fd), real_close(fd))[-1]
+    )
+
+    def boom(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(report_mod, "atomic_write_at", boom)
+    with pytest.raises(RuntimeError, match="disk full"):
+        write_report(_report(phase_builder), tmp_path)
+
+    assert closed  # the fd opened for the (failed) write was still closed
+    # and no leftover temp file / partial report
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_write_report_cleans_up_temp_file_on_serialization_failure(tmp_path, phase_builder):
+    report = _report(phase_builder)
+    report.summary["bad"] = object()  # not JSON-serialisable
+
+    with pytest.raises(ValueError):  # pydantic's serialization error
+        write_report(report, tmp_path)
+    assert list(tmp_path.iterdir()) == []  # no leftover .tmp file
 
 
 def test_load_report_refuses_a_symlinked_report(tmp_path, phase_builder):

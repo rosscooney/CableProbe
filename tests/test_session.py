@@ -204,6 +204,37 @@ async def test_unavailable_probe_is_skipped_not_warned(fast_config, monkeypatch)
     assert any("usbc_pd" in u for u in report.metadata.probes_unavailable)
 
 
+async def test_availability_exception_marks_coverage_partial(fast_config, monkeypatch):
+    working = FakeProbe(fast_config, 0.0, [[]] * 6)  # never emits anything -> no findings
+
+    class Bomb(Probe):
+        name = "bomb"
+
+        def availability(self):
+            raise RuntimeError("boom")
+
+        def snapshot(self):
+            raise AssertionError("never started, should not be snapshotted")
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [Bomb(fast_config, 0.0), working],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert report.metadata.probes_used == ["fake"]
+    assert any("bomb" in w for w in report.metadata.probe_warnings)
+    # unlike a clean "unavailable" probe, an availability() that raised is a
+    # real gap and must make the report say so - console, JSON, and exit code
+    # all key off summary["coverage"] / coverage_gaps
+    assert report.summary["coverage"] == "partial"
+    assert report.summary["coverage_gaps"]["probes_failed_to_start"] == ["bomb"]
+    from cableprobe.report import exit_code_for
+
+    assert exit_code_for(report) == 5  # INCOMPLETE_COVERAGE_EXIT_CODE
+
+
 async def test_reports_which_optional_probes_were_never_enabled(fast_config, monkeypatch):
     working = FakeProbe(fast_config, 0.0, [[]] * 6)
     monkeypatch.setattr(
@@ -251,10 +282,11 @@ async def test_start_probes_survives_a_raising_availability_check(fast_config):
     working = FakeProbe(fast_config, 0.0, [[]] * 6)
 
     # bomb sits between two probes that must be unaffected by its crash
-    active, unavailable, warnings = await _start_probes([tracked, bomb, working])
+    active, unavailable, warnings, failed = await _start_probes([tracked, bomb, working])
     assert [p.name for p in active] == ["tracked", "fake"]
     assert any("bomb" in w and "availability check failed" in w for w in warnings)
     assert unavailable == []
+    assert failed == ["bomb"]
 
     # and _stop_probes() is reachable - tracked's background work actually stops
     await _stop_probes(active)
@@ -373,6 +405,38 @@ async def test_probe_reported_incompleteness_makes_coverage_partial(fast_config,
     )
     assert report.summary["coverage"] == "partial"
     assert report.summary["coverage_gaps"]["incomplete_data"]
+
+
+async def test_connection_overflow_marker_makes_coverage_partial(fast_config, monkeypatch):
+    """The connections probe's own overflow/read-failure marker
+    (connection_frequency, monitoring_incomplete) flows through the same
+    generic mechanism as every other probe's incompleteness signal."""
+
+    from cableprobe.models import KIND_CONNECTION_FREQUENCY
+
+    overflow = Observation(
+        kind=KIND_CONNECTION_FREQUENCY,
+        identity="conn:freq:incomplete",
+        label="connection frequency sampling was incomplete (more than 2000 "
+        "distinct remotes seen in one window)",
+        attributes={"monitoring_incomplete": True, "reason": "cap hit"},
+    )
+
+    class Flooded(FakeProbe):
+        name = "connections"
+
+    monkeypatch.setattr(
+        "cableprobe.session.build_probes",
+        lambda config, session_start: [Flooded(fast_config, 0.0, [[overflow]] * 6)],
+    )
+    report = await run_session(
+        fast_config, RuleSet.default(), session_name="x", sleep=_noop_sleep
+    )
+    assert report.summary["coverage"] == "partial"
+    assert any(
+        "connection frequency sampling was incomplete" in item
+        for item in report.summary["coverage_gaps"]["incomplete_data"]
+    )
 
 
 async def test_snapshot_failures_flag_incomplete_coverage(fast_config, monkeypatch):

@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os
+
+import pytest
+
+from cableprobe.fsutil import UnsafePathError
 from cableprobe.knowledge import (
     Allowlist,
     ImplantList,
@@ -162,6 +167,153 @@ def test_allowlisted_device_does_not_downgrade_another_devices_finding():
     by_id = {f.related_identities[0]: f for f in out}
     assert by_id["input:good"].severity == "info"
     assert by_id["input:evil"].severity == "high"  # untrusted keyboard still loud
+
+
+# --------------------------------------------------------------------------
+# Allowlist trust verification (issue: protect the allowlist from tampering)
+# --------------------------------------------------------------------------
+
+
+def test_allowlist_load_missing_file_is_not_an_error_even_with_trust_check(tmp_path):
+    # the common case: no allowlist configured at all
+    al = Allowlist.load(tmp_path / "nope.yaml", verify_trust=True, invoking_uid=os.getuid())
+    assert len(al) == 0
+
+
+def test_allowlist_load_safe_file_with_trust_check(tmp_path):
+    path = tmp_path / "allow.yaml"
+    al = Allowlist.load(path, verify_trust=True, invoking_uid=os.getuid())
+    al.add("0bda", "8153", "750998", "Belkin USB-C LAN")
+    al.save(invoking_uid=os.getuid())
+
+    reloaded = Allowlist.load(path, verify_trust=True, invoking_uid=os.getuid())
+    assert len(reloaded) == 1
+    assert reloaded.match("0bda", "8153", "750998").name == "Belkin USB-C LAN"
+
+
+def test_allowlist_load_rejects_a_symlinked_file_when_trust_checked(tmp_path):
+    secret = tmp_path / "secret.yaml"
+    secret.write_text("allow: [{vid: dead, pid: beef, name: injected}]")
+    link = tmp_path / "allow.yaml"
+    link.symlink_to(secret)
+
+    with pytest.raises(UnsafePathError, match="symlink"):
+        Allowlist.load(link, verify_trust=True, invoking_uid=os.getuid())
+
+    # without the trust check, the existing symlink-safe read still refuses
+    # to follow it (read_text_nofollow) - it degrades to "no allowlist"
+    # rather than silently trusting attacker-controlled content
+    al = Allowlist.load(link, verify_trust=False)
+    assert len(al) == 0
+
+
+def test_allowlist_load_rejects_a_symlinked_ancestor_directory(tmp_path):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    (real_dir / "allow.yaml").write_text("allow: []")
+    linked_dir = tmp_path / "linked"
+    linked_dir.symlink_to(real_dir)
+
+    with pytest.raises(UnsafePathError, match="symlink"):
+        Allowlist.load(
+            linked_dir / "allow.yaml", verify_trust=True, invoking_uid=os.getuid()
+        )
+
+
+def test_allowlist_load_rejects_insecure_permissions(tmp_path):
+    path = tmp_path / "allow.yaml"
+    path.write_text("allow: []")
+    os.chmod(path, 0o666)
+    try:
+        with pytest.raises(UnsafePathError, match="writable by other users"):
+            Allowlist.load(path, verify_trust=True, invoking_uid=os.getuid())
+    finally:
+        os.chmod(path, 0o644)
+
+
+def test_allowlist_load_rejects_a_foreign_owned_directory(tmp_path, monkeypatch):
+    from cableprobe import knowledge as knowledge_mod
+
+    path = tmp_path / "allow.yaml"
+    path.write_text("allow: []")
+
+    monkeypatch.setattr(
+        knowledge_mod,
+        "verify_directory_chain",
+        lambda directory, **kw: [f"{directory} is owned by uid 65534, not root or the invoking user"],
+    )
+    with pytest.raises(UnsafePathError, match="65534"):
+        Allowlist.load(path, verify_trust=True, invoking_uid=os.getuid())
+
+
+def test_allowlist_load_rejects_a_non_regular_file(tmp_path):
+    fifo = tmp_path / "allow.yaml"
+    os.mkfifo(fifo)
+    with pytest.raises(UnsafePathError, match="not a regular file"):
+        Allowlist.load(fifo, verify_trust=True, invoking_uid=os.getuid())
+
+
+def test_allowlist_load_rejects_oversized_file(tmp_path, monkeypatch):
+    from cableprobe import knowledge as knowledge_mod
+
+    path = tmp_path / "allow.yaml"
+    path.write_text("allow: []\n# " + "x" * 100)
+    monkeypatch.setattr(knowledge_mod, "MAX_ALLOWLIST_BYTES", 10)
+
+    with pytest.raises(UnsafePathError, match="refusing to load"):
+        Allowlist.load(path, verify_trust=True, invoking_uid=os.getuid())
+
+    # without the trust check: degrade gracefully rather than crash the run
+    al = Allowlist.load(path, verify_trust=False)
+    assert len(al) == 0
+
+
+def test_allowlist_load_rejects_malformed_yaml(tmp_path):
+    path = tmp_path / "allow.yaml"
+    path.write_text("allow: [this is: not: valid: yaml: [[[")
+
+    with pytest.raises(UnsafePathError, match="malformed"):
+        Allowlist.load(path, verify_trust=True, invoking_uid=os.getuid())
+
+    # unprivileged: degrade gracefully instead of crashing the whole run
+    al = Allowlist.load(path, verify_trust=False)
+    assert len(al) == 0
+
+
+def test_allowlist_load_malformed_yaml_without_trust_check_does_not_raise(tmp_path):
+    # regression: previously yaml.safe_load() was called with no try/except
+    # at all, so malformed YAML crashed the CLI outright
+    path = tmp_path / "allow.yaml"
+    path.write_text(": : :\nnot valid\n  - [")
+    al = Allowlist.load(path)
+    assert len(al) == 0
+
+
+def test_allowlist_save_refuses_directory_replaced_after_verification(tmp_path, monkeypatch):
+    """Same deterministic TOCTOU simulation as the report-writing tests: the
+    directory passes verification, but is swapped for a symlink before the
+    real open happens. save() must not write through the swap."""
+
+    from cableprobe import fsutil as fsutil_mod
+
+    target = tmp_path / "sessions"
+    target.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    real_verify = fsutil_mod.verify_directory_chain
+
+    def swap_after_check(directory, **kwargs):
+        reasons = real_verify(directory, **kwargs)
+        target.rmdir()
+        target.symlink_to(elsewhere)
+        return reasons
+
+    monkeypatch.setattr(fsutil_mod, "verify_directory_chain", swap_after_check)
+    al = Allowlist([], target / "allowlist.yaml")
+    al.add("dead", "beef", None, "x")
+    with pytest.raises(OSError):
+        al.save()
+    assert list(elsewhere.iterdir()) == []
 
 
 def test_apply_allowlist_leaves_behavioural_findings_alone():

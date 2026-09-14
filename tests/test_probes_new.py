@@ -1308,6 +1308,240 @@ def test_kernel_log_flags_truncated_output_as_incomplete(monkeypatch):
     )
 
 
+def _canned_run_command(responses):
+    """A run_command() stand-in returning `responses` in order, one per call,
+    and recording the argv it was called with (so a test can assert on
+    --after-cursor vs --since)."""
+
+    from cableprobe.probes.base import Captured
+
+    calls: list[list[str]] = []
+    it = iter(responses)
+
+    def fake(args, **kwargs):
+        calls.append(list(args))
+        code, text, err = next(it)
+        out = text if isinstance(text, Captured) else Captured(text)
+        return code, out, err
+
+    fake.calls = calls
+    return fake
+
+
+def test_kernel_log_journalctl_successive_snapshots_use_the_cursor(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    fake = _canned_run_command(
+        [
+            (0, "2026-01-01T00:00:00+0000 host kernel: rndis0: register\n-- cursor: A\n", ""),
+            (0, "-- cursor: B\n", ""),  # nothing new this time
+        ]
+    )
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    first = probe.snapshot()
+    assert any("rndis0" in o.label for o in first if o.kind == "kernel_message")
+    assert probe._cursor == "A"
+
+    second = probe.snapshot()
+    assert probe._cursor == "B"
+    # the second call resumed from the cursor, not --since again
+    assert "--after-cursor" in fake.calls[1] and "A" in fake.calls[1]
+    assert "--since" not in fake.calls[1]
+    # and the first call's match is still present - cumulative, not replaced
+    assert any("rndis0" in o.label for o in second if o.kind == "kernel_message")
+
+
+def test_kernel_log_journalctl_first_call_bootstraps_with_since(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    fake = _canned_run_command([(0, "-- cursor: A\n", "")])
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    probe.snapshot()
+    assert "--since" in fake.calls[0]
+    assert "--after-cursor" not in fake.calls[0]
+
+
+def test_kernel_log_journalctl_no_new_entries_keeps_previous_results(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    fake = _canned_run_command(
+        [
+            (0, "2026-01-01T00:00:00+0000 host kernel: cdc_ether registered\n-- cursor: A\n", ""),
+            (0, "-- cursor: A\n", ""),  # cursor unchanged - nothing happened since
+            (0, "-- cursor: A\n", ""),
+        ]
+    )
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    probe.snapshot()
+    second = probe.snapshot()
+    third = probe.snapshot()
+    for result in (second, third):
+        matches = [o for o in result if o.kind == "kernel_message" and "cdc_ether" in o.label]
+        assert len(matches) == 1  # still there, not lost and not duplicated
+
+
+def test_kernel_log_journalctl_duplicate_messages_are_not_duplicated(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    line = "2026-01-01T00:00:00+0000 host kernel: rndis0: register\n"
+    fake = _canned_run_command(
+        [
+            (0, line + "-- cursor: A\n", ""),
+            # the same message logged again (e.g. a second device) normalises
+            # to the same identity (filter_kernel_lines masks digits) - must
+            # collapse to one entry, not accumulate duplicates
+            (0, line + "-- cursor: B\n", ""),
+        ]
+    )
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    probe.snapshot()
+    second = probe.snapshot()
+    matches = [o for o in second if o.kind == "kernel_message" and "rndis0" in o.label]
+    assert len(matches) == 1
+
+
+def test_kernel_log_journalctl_cursor_invalidation_falls_back_and_flags(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    fake = _canned_run_command(
+        [
+            (0, "2026-01-01T00:00:00+0000 host kernel: rndis0: up\n-- cursor: A\n", ""),
+            (1, "", "Failed to seek to cursor: No such file or directory"),  # rotated away
+            (0, "2026-01-01T00:05:00+0000 host kernel: rndis0: up\n-- cursor: C\n", ""),
+        ]
+    )
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    probe.snapshot()
+    assert probe._cursor == "A"
+
+    result = probe.snapshot()
+    assert probe._cursor == "C"  # recovered via the --since fallback
+    assert len(fake.calls) == 3  # first snapshot + failed cursor read + since fallback
+    assert "--since" in fake.calls[2] and "--after-cursor" not in fake.calls[2]
+    assert any(
+        o.identity == "kernel-log:incomplete" and "cursor was invalidated" in o.attributes["reason"]
+        for o in result
+    )
+
+
+def test_kernel_log_journalctl_command_failure_raises(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    monkeypatch.setattr(kl, "run_command", lambda *a, **k: (1, "", "journalctl: command not found"))
+
+    with pytest.raises(RuntimeError, match="command not found"):
+        probe.snapshot()
+
+
+def test_kernel_log_journalctl_missing_cursor_is_flagged(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    # no "-- cursor: " trailer at all - an unexpectedly old journalctl, say
+    monkeypatch.setattr(
+        kl, "run_command",
+        lambda *a, **k: (0, "2026-01-01T00:00:00+0000 host kernel: rndis0: up\n", ""),
+    )
+
+    obs = probe.snapshot()
+    assert probe._cursor is None
+    assert any(
+        o.identity == "kernel-log:incomplete" and "did not report a cursor" in o.attributes["reason"]
+        for o in obs
+    )
+
+
+def test_kernel_log_dmesg_fallback_still_works(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "dmesg")
+    fake = _canned_run_command([(0, "[    1.234] rndis0: registered\n", "")])
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    obs = probe.snapshot()
+    assert any(o.kind == "kernel_message" and "rndis0" in o.label for o in obs)
+    assert fake.calls[0][0] == "dmesg" and "--ctime" in fake.calls[0]
+
+
+def test_kernel_log_dmesg_falls_back_to_plain_dmesg_when_ctime_unsupported(monkeypatch):
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "dmesg")
+    fake = _canned_run_command(
+        [
+            (1, "", "dmesg: unrecognized option '--ctime'"),
+            (0, "rndis0: registered\n", ""),
+        ]
+    )
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    obs = probe.snapshot()
+    assert any(o.kind == "kernel_message" and "rndis0" in o.label for o in obs)
+    assert fake.calls[1] == ["dmesg"]
+
+
+def test_kernel_log_dmesg_is_cumulative_across_calls(monkeypatch):
+    """dmesg has no cursor and always reports its whole current ring buffer;
+    if an earlier match scrolls out of a later read it must not disappear
+    from the snapshot - kernel messages only ever accumulate for the probe's
+    purposes (see analysis.PERSISTENCE_KINDS)."""
+
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "dmesg")
+    fake = _canned_run_command(
+        [
+            (0, "[1.0] rndis0: registered\n[2.0] cdc_ether: registered\n", ""),
+            (0, "[3.0] cdc_ether: registered\n", ""),  # rndis0's line rotated out
+        ]
+    )
+    monkeypatch.setattr(kl, "run_command", fake)
+
+    probe.snapshot()
+    second = probe.snapshot()
+    labels = [o.label for o in second if o.kind == "kernel_message"]
+    assert any("rndis0" in label for label in labels)
+    assert any("cdc_ether" in label for label in labels)
+
+
+def test_kernel_log_journalctl_truncation_via_line_count_without_truncated_flag(monkeypatch):
+    """Truncation is also detected via the line-count cap, independent of the
+    Captured.truncated attribute (belt and braces against a backend/wrapper
+    that does not set it)."""
+
+    from cableprobe.probes import kernel_log as kl
+
+    probe = kl.KernelLogProbe(_CFG, 0.0)
+    monkeypatch.setattr(probe, "_backend", lambda: "journalctl")
+    monkeypatch.setattr(kl, "_MAX_KERNEL_LINES", 2)
+    lines = "\n".join(f"2026-01-01T00:00:0{i}+0000 host kernel: rndis0: line{i}" for i in range(5))
+    monkeypatch.setattr(kl, "run_command", lambda *a, **k: (0, lines + "\n-- cursor: A\n", ""))
+
+    obs = probe.snapshot()
+    assert any(o.identity == "kernel-log:incomplete" for o in obs)
+
+
 def test_oui_family_groups_locally_administered_bssids():
     from cableprobe.probes.wifi_scan import oui_family
 

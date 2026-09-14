@@ -129,6 +129,35 @@ def _fingerprint(path: Path) -> dict:
     return info
 
 
+def _is_relevant_entry(path: Path) -> bool:
+    """True for anything at ``path`` worth fingerprinting: a regular file, a
+    broken symlink, or a FIFO / device / socket planted at the name - anything
+    except an ordinary directory (globs routinely match subdirectories, which
+    are not themselves suspicious here) or genuine absence.
+
+    ``is_file()`` / ``exists()`` (what discovery used to filter on) both
+    *follow* symlinks and only return True for a regular file at the resolved
+    target - so a FIFO, a device node, or a broken symlink planted at a
+    watched name (exactly what this probe exists to catch) was silently
+    skipped before ``_fingerprint`` ever got a chance to see - and safely
+    report - it.
+    """
+
+    try:
+        lst = path.lstat()
+    except OSError:
+        return False  # genuinely absent - not this probe's concern
+    if stat.S_ISDIR(lst.st_mode):
+        return False  # an ordinary directory, not a "file" to fingerprint
+    if stat.S_ISLNK(lst.st_mode):
+        try:
+            target_st = path.stat()  # follows the link
+        except OSError:
+            return True  # broken symlink - relevant; _fingerprint reports it
+        return not stat.S_ISDIR(target_st.st_mode)
+    return True  # regular file, FIFO, device, socket, ...
+
+
 def _authorized_keys_paths(home_roots: tuple[str, ...] = _HOME_ROOTS) -> list[Path]:
     out: list[Path] = []
     for root in home_roots:
@@ -144,11 +173,8 @@ def _authorized_keys_paths(home_roots: tuple[str, ...] = _HOME_ROOTS) -> list[Pa
         for home in homes:
             for name in ("authorized_keys", "authorized_keys2"):
                 p = home / ".ssh" / name
-                try:
-                    if p.exists():
-                        out.append(p)
-                except OSError:
-                    continue
+                if _is_relevant_entry(p):
+                    out.append(p)
     return out
 
 
@@ -199,9 +225,9 @@ def scan_persistence(
         p = Path(pattern)
         if any(ch in pattern for ch in "*?["):
             for match in sorted(p.parent.glob(p.name)):
-                if match.is_file():
+                if _is_relevant_entry(match):
                     _emit(label, match)
-        elif p.is_file():
+        elif _is_relevant_entry(p):
             _emit(label, p)
 
     for keys in _authorized_keys_paths(home_roots or ()):

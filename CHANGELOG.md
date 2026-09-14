@@ -15,6 +15,29 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Security
+
+- The **allowlist** is now trust-verified before it can downgrade a finding.
+  `Allowlist.load()` always reads through a bounded, symlink-safe descriptor
+  (`fsutil.read_text_nofollow`) instead of an unbounded, symlink-following
+  `path.read_text()`. When running as root, the file *and its whole directory
+  chain* are checked for safe ownership/permissions first; an existing but
+  untrustworthy allowlist is rejected with an actionable error instead of
+  being silently loaded (or silently ignored) - either would let anyone who
+  can write there downgrade findings unnoticed. A genuinely missing allowlist
+  is still not an error. Malformed YAML is now also caught (previously an
+  unhandled `yaml.YAMLError` could crash the CLI outright).
+- **Privileged writes** (the report, the sidecar index, the allowlist) are now
+  anchored to a directory descriptor instead of a bare pathname.
+  `fsutil.verify_directory_chain()` checks every ancestor of the output
+  directory, not just the leaf (a symlink several levels up used to pass a
+  leaf-only check); `fsutil.open_verified_dir()` performs that check and then
+  opens the directory itself with `O_NOFOLLOW`, and every write after that
+  (`atomic_write_at`, `read_text_nofollow_at`) uses `dir_fd=` (`openat` /
+  `renameat` / `unlinkat`), so a directory replaced *after* the check passes
+  can no longer redirect the write - the residual race a pathname-only check
+  could never close on its own.
+
 ### Changed
 
 - `power` and `connections` each hand-rolled the identical background-sampler-
@@ -25,6 +48,47 @@ Each release is also published to
 
 ### Fixed
 
+- Availability-check exceptions and connection-sampling overflow / read
+  failures are now consistently folded into `summary["coverage"]` /
+  `coverage_gaps`, matching the console, saved-report and exit-code behaviour
+  already established for every other kind of monitoring gap.
+  `_start_probes()` now returns the failed probe names directly instead of
+  `run_session()` grepping warning text for `"failed to start"` (the exact
+  fragility that silently excluded the availability-exception path when it was
+  added). The `connections` probe now records an overflow or a failed
+  `/proc/net/tcp{,6}` read as `monitoring_incomplete` *before* resetting the
+  sampling window for the next phase, and a tick where every attempted read
+  failed no longer increments the sample count - a failed sample can no longer
+  masquerade as "sampled, and nothing was there."
+- The `persistence` probe's discovery used `is_file()` / `exists()`, both of
+  which follow symlinks and only pass for a regular file at the resolved
+  target - so a FIFO, a device node, or a broken symlink planted at a watched
+  path (udev rules, `authorized_keys`, `ld.so.preload`, …) was silently
+  skipped before the already-safe `_fingerprint()` ever got a chance to report
+  it. Discovery now uses an `lstat`-based check that finds anything relevant
+  at a watched name - a regular file, a broken symlink, a FIFO/device/socket -
+  while still correctly ignoring an ordinary directory a glob happened to
+  match, or a target that is genuinely absent.
+- The `connections` probe read entire `/proc/net/tcp{,6}` tables and built an
+  unbounded set of every distinct remote in them *before* the existing
+  cross-window cap ever got a chance to trim it - a host with a very large
+  connection table (or a device behaving like a scanner/flooder) could balloon
+  memory on a single sampling tick even though the tracked-remote cap looked
+  bounded. Parsing is now streamed line by line and capped per-read
+  (`_MAX_REMOTES_PER_READ`, and `_MAX_SNAPSHOT_OBSERVATIONS` for the
+  point-in-time snapshot), with every truncation surfaced as
+  `monitoring_incomplete`; `active_remotes()` / `parse_outbound()` keep their
+  existing string-based signatures and behaviour for existing callers/tests.
+- The `kernel_log` probe's journal backend re-read and re-filtered everything
+  since session start on *every* phase-boundary snapshot. It now reads
+  incrementally via a saved journal cursor (`--after-cursor`, resuming from
+  `--show-cursor`'s trailer), while still returning the full, deduplicated
+  picture matched so far each time (`analyse()` expects a cumulative snapshot,
+  not a delta). A cursor invalidated by journal rotation or vacuuming falls
+  back to a fresh `--since` read and is flagged incomplete, rather than
+  silently losing whatever happened in between. This also fixes a latent gap
+  in the `dmesg` fallback: a matched message that scrolled out of the kernel
+  ring buffer between polls no longer disappears from later snapshots.
 - The `connections` probe's frequency tracker (`_counts`) had no size cap,
   unlike every other buffer in the codebase (the power probe's ring, the
   command-output cap, the per-phase event budget). A host with real traffic

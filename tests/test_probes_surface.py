@@ -209,6 +209,78 @@ def test_scan_persistence_monitors_a_symlinked_regular_target(tmp_path):
     assert item2.attributes["sha256"] != before
 
 
+def test_scan_persistence_finds_a_direct_fifo_at_a_fixed_target(tmp_path):
+    # a fixed (non-glob) target, e.g. /etc/ld.so.preload, replaced with a FIFO
+    import os
+
+    fifo = tmp_path / "ld.so.preload"
+    os.mkfifo(fifo)
+    (item,) = scan_persistence(targets=[("ld.so.preload", str(fifo))], home_roots=())
+    assert item.attributes["present"] is True
+    assert item.attributes["regular_file"] is False
+    assert item.attributes["sha256"] is None
+    assert item.attributes["fingerprint_incomplete"] is True
+
+
+def test_scan_persistence_finds_a_globbed_fifo(tmp_path):
+    import os
+
+    d = tmp_path / "cron.d"
+    d.mkdir()
+    os.mkfifo(d / "evil")
+    (item,) = scan_persistence(targets=[("cron.d", str(d / "*"))], home_roots=())
+    assert item.attributes["regular_file"] is False
+    assert item.attributes["fingerprint_incomplete"] is True
+
+
+def test_scan_persistence_finds_a_broken_symlink_at_a_fixed_target(tmp_path):
+    link = tmp_path / "hosts"
+    link.symlink_to(tmp_path / "does-not-exist")
+    (item,) = scan_persistence(targets=[("hosts", str(link))], home_roots=())
+    assert item.attributes["present"] is True  # the link itself exists
+    assert item.attributes["sha256"] is None
+    assert item.attributes["fingerprint_incomplete"] is True
+
+
+def test_scan_persistence_finds_a_broken_symlink_at_a_globbed_target(tmp_path):
+    d = tmp_path / "cron.d"
+    d.mkdir()
+    (d / "dangling").symlink_to(d / "nope")
+    (item,) = scan_persistence(targets=[("cron.d", str(d / "*"))], home_roots=())
+    assert item.attributes["fingerprint_incomplete"] is True
+
+
+def test_scan_persistence_finds_a_broken_symlink_authorized_keys(tmp_path):
+    home = tmp_path / "mallory"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "authorized_keys").symlink_to(home / ".ssh" / "nope")
+
+    out = scan_persistence(targets=[], home_roots=(str(tmp_path),))
+    item = next(o for o in out if o.identity.endswith("authorized_keys"))
+    assert item.attributes["present"] is True
+    assert item.attributes["sha256"] is None
+    assert item.attributes["fingerprint_incomplete"] is True
+
+
+def test_scan_persistence_skips_a_bare_directory_glob_match(tmp_path):
+    # a glob routinely matches an ordinary subdirectory - not itself suspicious
+    d = tmp_path / "profile.d"
+    d.mkdir()
+    (d / "subdir").mkdir()
+    out = scan_persistence(targets=[("profile.d", str(d / "*"))], home_roots=())
+    assert out == []
+
+
+def test_scan_persistence_absent_optional_target_produces_nothing(tmp_path):
+    out = scan_persistence(
+        targets=[("rc.local", str(tmp_path / "does-not-exist"))], home_roots=()
+    )
+    assert out == []
+    # and a glob matching nothing at all is equally quiet
+    out2 = scan_persistence(targets=[("cron.d", str(tmp_path / "empty" / "*"))], home_roots=())
+    assert out2 == []
+
+
 def test_scan_persistence_does_not_hang_on_a_symlink_to_a_fifo(tmp_path):
     import os
 
@@ -236,6 +308,32 @@ _PROC_NET_TCP = """\
    2: 0100007F:9002 0100007F:1F90 01 00000000:00000000 00:00000000 00000000  1000 0 3 0000
    3: 0A00020F:C1B4 22D8B85D:01BB 02 00000000:00000000 00:00000000 00000000     0 0 4 0000
 """
+
+
+def _hex_addr(ip: str, port: int) -> str:
+    """``"10.0.1.2", 443`` -> the ``AABBCCDD:PPPP`` hex form
+    ``/proc/net/tcp{,6}`` uses (little-endian 32-bit address, hex port)."""
+
+    import socket
+    import struct
+
+    as_int = struct.unpack("<L", socket.inet_aton(ip))[0]
+    return f"{as_int:08X}:{port:04X}"
+
+
+def _synthetic_proc_net_tcp(remotes: list[str], *, port: int = 443) -> str:
+    """A well-formed ``/proc/net/tcp`` table with one ESTABLISHED row per
+    entry in ``remotes`` (IPs may repeat - each row is still a distinct
+    connection, e.g. a different local port each time)."""
+
+    lines = ["  sl  local_address rem_address   st ... uid ... inode"]
+    for i, ip in enumerate(remotes):
+        local_port = 1024 + (i % 60000)
+        lines.append(
+            f"{i:4d}: 0100007F:{local_port:04X} {_hex_addr(ip, port)} 01 "
+            f"00000000:00000000 00:00000000 00000000  1000 0 {i} 0000"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def test_parse_outbound_keeps_only_routable_active():
@@ -303,6 +401,226 @@ def test_connection_probe_emits_frequency_observations(tmp_path, monkeypatch):
     assert all(o.kind != KIND_CONNECTION_FREQUENCY for o in probe.snapshot())
 
 
+def test_connection_probe_overflow_is_visible_as_incomplete_monitoring(tmp_path, monkeypatch):
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_PROC_NET_TCP, encoding="utf-8")  # 2 distinct routable remotes
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+    monkeypatch.setattr(conn_mod, "_MAX_TRACKED_REMOTES", 1)
+
+    probe = ConnectionProbe(Config(), 0.0)
+    probe._sample_once()  # the cap is hit here (2 remotes, cap 1)
+
+    marker = next(
+        o for o in probe.snapshot()
+        if o.kind == KIND_CONNECTION_FREQUENCY and o.identity == "conn:freq:incomplete"
+    )
+    assert marker.attributes["monitoring_incomplete"] is True
+    assert "distinct remotes" in marker.attributes["reason"]
+
+    # the overflow is recorded (and visible) *before* the window resets - a
+    # second snapshot with nothing new sampled must not still be showing it
+    assert all(
+        o.identity != "conn:freq:incomplete" for o in probe.snapshot()
+    )
+
+
+def test_connection_probe_failed_read_does_not_count_as_an_empty_sample(tmp_path, monkeypatch):
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_PROC_NET_TCP, encoding="utf-8")
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+
+    probe = ConnectionProbe(Config(), 0.0)
+
+    # a real, successful sample first
+    probe._sample_once()
+
+    # then every subsequent read fails outright (permission race, vanished
+    # file that still passed .exists(), ...)
+    real_open = conn_mod.Path.open
+
+    def failing_open(self, *a, **k):
+        if str(self) == str(tcp):
+            raise OSError("simulated read failure")
+        return real_open(self, *a, **k)
+
+    monkeypatch.setattr(conn_mod.Path, "open", failing_open)
+    probe._sample_once()
+    probe._sample_once()
+
+    freq_obs = probe._frequency_observations()  # drains the window internally
+
+    # tcp6 (present, empty) still reads fine each tick, so these partial
+    # failures - one interface down, one up - still count as real samples
+    # (there was genuinely nothing new to see on either); the remote found on
+    # the one fully-successful tick keeps its own accurate count
+    real = next(o for o in freq_obs if o.attributes.get("remote") == "8.8.8.8:443")
+    assert real.attributes["sample_count"] == 3
+    assert real.attributes["seen_count"] == 1
+
+    # and the read failures are surfaced, not silently dropped
+    marker = next(
+        o for o in freq_obs
+        if o.kind == KIND_CONNECTION_FREQUENCY and o.identity == "conn:freq:incomplete"
+    )
+    assert marker.attributes["monitoring_incomplete"] is True
+    assert "could not read" in marker.attributes["reason"]
+
+
+def test_connection_probe_every_read_failing_produces_no_false_empty_sample(
+    tmp_path, monkeypatch
+):
+    """If EVERY attempted read fails, sample_count must stay 0 - a failed
+    sample must never look identical to "sampled, and nothing was there"."""
+
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_PROC_NET_TCP, encoding="utf-8")
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+    monkeypatch.setattr(
+        conn_mod.Path,
+        "open",
+        lambda self, *a, **k: (_ for _ in ()).throw(OSError("simulated failure")),
+    )
+
+    probe = ConnectionProbe(Config(), 0.0)
+    probe._sample_once()
+    probe._sample_once()
+
+    counts, total, capped, read_failures, reads_truncated = probe._drain_window()
+    assert total == 0  # not "sampled twice, found nothing"
+    assert read_failures == 2
+    assert reads_truncated == 0
+    assert counts == {}
+
+
+# --------------------------------------------------------------------------
+# bounding: streamed, capped parsing before large allocations (issue 5)
+# --------------------------------------------------------------------------
+
+
+def test_stream_active_remotes_caps_a_huge_synthetic_table(tmp_path):
+    from cableprobe.probes.connections import _stream_active_remotes
+
+    remotes = [f"10.{(i >> 16) & 0xFF}.{(i >> 8) & 0xFF}.{i & 0xFF}" for i in range(1, 20_001)]
+    table = tmp_path / "tcp"
+    table.write_text(_synthetic_proc_net_tcp(remotes), encoding="utf-8")
+
+    seen, truncated = _stream_active_remotes(table, ipv6=False, cap=100)
+    assert truncated is True
+    assert len(seen) == 100  # never grew past the cap, regardless of the 20,000 rows
+
+
+def test_stream_active_remotes_duplicate_remotes_do_not_count_against_cap(tmp_path):
+    from cableprobe.probes.connections import _stream_active_remotes
+
+    # 5,000 rows (different local ports), but only 3 distinct remote IPs
+    remotes = ["10.0.0.1", "10.0.0.2", "10.0.0.3"] * 1667
+    table = tmp_path / "tcp"
+    table.write_text(_synthetic_proc_net_tcp(remotes), encoding="utf-8")
+
+    seen, truncated = _stream_active_remotes(table, ipv6=False, cap=100)
+    assert truncated is False  # only 3 distinct entries - well under the cap
+    assert seen == {("tcp", "10.0.0.1:443"), ("tcp", "10.0.0.2:443"), ("tcp", "10.0.0.3:443")}
+
+
+def test_stream_active_remotes_cap_boundary_is_exact(tmp_path):
+    from cableprobe.probes.connections import _stream_active_remotes
+
+    exactly = [f"10.0.1.{i}" for i in range(1, 51)]  # 50 distinct
+    table = tmp_path / "tcp"
+    table.write_text(_synthetic_proc_net_tcp(exactly), encoding="utf-8")
+    seen, truncated = _stream_active_remotes(table, ipv6=False, cap=50)
+    assert len(seen) == 50 and truncated is False
+
+    one_more = [f"10.0.1.{i}" for i in range(1, 52)]  # 51 distinct
+    table.write_text(_synthetic_proc_net_tcp(one_more), encoding="utf-8")
+    seen2, truncated2 = _stream_active_remotes(table, ipv6=False, cap=50)
+    assert len(seen2) == 50 and truncated2 is True
+
+
+def test_stream_outbound_observations_caps_the_snapshot(tmp_path):
+    from cableprobe.probes.connections import _stream_outbound_observations
+
+    remotes = [f"10.1.{(i >> 8) & 0xFF}.{i & 0xFF}" for i in range(1, 5001)]
+    table = tmp_path / "tcp"
+    table.write_text(_synthetic_proc_net_tcp(remotes), encoding="utf-8")
+
+    obs, truncated = _stream_outbound_observations(table, ipv6=False, cap=200)
+    assert truncated is True
+    assert len(obs) == 200
+    assert all(o.kind == KIND_OUTBOUND_CONNECTION for o in obs)
+
+
+def test_connection_probe_snapshot_truncation_is_visible_as_incomplete(tmp_path, monkeypatch):
+    from cableprobe.config import Config
+    from cableprobe.probes import connections as conn_mod
+    from cableprobe.probes.connections import ConnectionProbe
+
+    remotes = [f"10.2.{(i >> 8) & 0xFF}.{i & 0xFF}" for i in range(1, 3001)]
+    tcp = tmp_path / "tcp"
+    tcp.write_text(_synthetic_proc_net_tcp(remotes), encoding="utf-8")
+    tcp6 = tmp_path / "tcp6"
+    tcp6.write_text("", encoding="utf-8")
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP", str(tcp))
+    monkeypatch.setattr(conn_mod, "PROC_NET_TCP6", str(tcp6))
+    monkeypatch.setattr(conn_mod, "_MAX_SNAPSHOT_OBSERVATIONS", 100)
+
+    out = ConnectionProbe(Config(), 0.0).snapshot()
+    marker = next(o for o in out if o.identity == "conn:snapshot:incomplete")
+    assert marker.attributes["monitoring_incomplete"] is True
+    assert sum(1 for o in out if o.kind == KIND_OUTBOUND_CONNECTION) == 100
+
+
+def test_stream_active_remotes_memory_is_bounded_regardless_of_input_size(tmp_path):
+    """Deterministic evidence the intermediate collection is actually bounded,
+    not a timing proxy: compare the traced memory delta of streaming+capping a
+    huge table against a small one - both should build a similarly small
+    result (the cap), not memory proportional to input size."""
+
+    import tracemalloc
+
+    from cableprobe.probes.connections import _stream_active_remotes
+
+    def _peek_delta(n_rows: int, cap: int) -> int:
+        remotes = [f"10.{(i >> 16) & 0xFF}.{(i >> 8) & 0xFF}.{i & 0xFF}" for i in range(1, n_rows + 1)]
+        table = tmp_path / f"tcp_{n_rows}"
+        table.write_text(_synthetic_proc_net_tcp(remotes), encoding="utf-8")
+        tracemalloc.start()
+        try:
+            _stream_active_remotes(table, ipv6=False, cap=cap)
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        return peak
+
+    small_peak = _peek_delta(200, cap=100)
+    huge_peak = _peek_delta(100_000, cap=100)
+
+    # a 500x larger table must not translate into anywhere near 500x more
+    # peak memory for the (capped) parse - it stays in the same ballpark
+    assert huge_peak < small_peak * 10
+
+
 def test_connection_probe_caps_tracked_remotes(tmp_path, monkeypatch):
     from cableprobe.config import Config
     from cableprobe.probes import connections as conn_mod
@@ -346,6 +664,6 @@ async def test_connection_probe_sampler_thread_starts_and_stops(tmp_path, monkey
     time.sleep(0.1)
     await probe.stop()
     assert probe._sampler is None
-    counts, total = probe._drain_window()
+    counts, total, _capped, _read_failures, _reads_truncated = probe._drain_window()
     assert total > 0  # the thread sampled while alive
     assert counts  # and actually saw the routable remotes

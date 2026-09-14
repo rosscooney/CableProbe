@@ -79,6 +79,27 @@ def _allowlist_path(cfg: Config) -> Path:
     return cfg.allowlist_file or (cfg.output_dir / "allowlist.yaml")
 
 
+def _load_allowlist(cfg: Config) -> Allowlist:
+    """Load the configured allowlist, rejecting an existing-but-untrustworthy
+    one with an actionable error when running privileged (see
+    ``Allowlist.load``'s ``verify_trust``)."""
+
+    path = _allowlist_path(cfg)
+    try:
+        return Allowlist.load(path, verify_trust=_is_root(), invoking_uid=_sudo_uid())
+    except OSError as exc:
+        typer.secho(f"error: {exc}", fg="red", err=True)
+        raise typer.Exit(code=2) from exc
+
+
+def _save_allowlist(al: Allowlist) -> None:
+    try:
+        al.save(invoking_uid=_sudo_uid())
+    except OSError as exc:
+        typer.secho(f"error: could not save the allowlist: {exc}", fg="red", err=True)
+        raise typer.Exit(code=2) from exc
+
+
 def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
@@ -429,7 +450,7 @@ def run(
         raise typer.Exit(code=2) from exc
 
     implants = ImplantList.load(cfg.implants_file)
-    allowlist = Allowlist.load(_allowlist_path(cfg))
+    allowlist = _load_allowlist(cfg)
 
     name = session_name or f"cableprobe-{time.strftime('%Y%m%dT%H%M%S')}"
     prompt_fn = (
@@ -475,7 +496,11 @@ def run(
     finally:
         progress.close()
 
-    path = write_report(report, cfg.output_dir)
+    try:
+        path = write_report(report, cfg.output_dir, invoking_uid=_sudo_uid())
+    except OSError as exc:
+        typer.secho(f"error: could not write the report: {exc}", fg="red", err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo("")
     render_summary(report)
     typer.secho(f"\nreport written to {path}", fg="green")
@@ -844,7 +869,7 @@ def allow(
     if output_dir is not None:
         cfg.output_dir = output_dir
     path = _allowlist_path(cfg)
-    al = Allowlist.load(path)
+    al = _load_allowlist(cfg)
     al.path = path
 
     if remove is not None:
@@ -854,7 +879,7 @@ def allow(
             )
             raise typer.Exit(code=2)
         gone = al.entries.pop(remove - 1)
-        al.save()
+        _save_allowlist(al)
         typer.secho(f"removed #{remove}: {gone.name} ({gone.vid}:{gone.pid})", fg="green")
         return
 
@@ -877,13 +902,13 @@ def allow(
                 al.add(v, p, s, typer.prompt("  name", default=str(delta.label)))
                 added += 1
         if added:
-            al.save()
+            _save_allowlist(al)
         typer.secho(f"added {added} device(s) to {path}", fg="green")
         return
 
     if vid and pid:
         entry = al.add(vid, pid, serial, name or f"{vid}:{pid}")
-        al.save()
+        _save_allowlist(al)
         typer.secho(
             f"added: {entry.name}  {entry.vid}:{entry.pid}"
             + (f" serial {entry.serial}" if entry.serial else "  (any serial)"),

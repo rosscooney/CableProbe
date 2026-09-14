@@ -15,13 +15,21 @@ lead (the tool may be reflashed with a spoofed ID); a non-match proves nothing.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
 import yaml
 
-from cableprobe.fsutil import atomic_write
+from cableprobe.fsutil import (
+    UnsafePathError,
+    atomic_write_at,
+    open_verified_dir,
+    read_text_nofollow,
+    unsafe_file_reasons,
+    verify_directory_chain,
+)
 from cableprobe.logging_config import get_logger
 from cableprobe.models import SEVERITIES, Delta, Finding
 
@@ -160,6 +168,11 @@ class AllowEntry:
         return row
 
 
+#: An allowlist is a handful of entries; anything past this is corrupt or an
+#: attempt to make loading it expensive.
+MAX_ALLOWLIST_BYTES = 1 * 1024 * 1024
+
+
 class Allowlist:
     def __init__(self, entries: list[AllowEntry], path: Path | None = None) -> None:
         self.entries = entries
@@ -169,15 +182,78 @@ class Allowlist:
         return len(self.entries)
 
     @classmethod
-    def load(cls, path: Path | str | None) -> "Allowlist":
+    def load(
+        cls,
+        path: Path | str | None,
+        *,
+        verify_trust: bool = False,
+        invoking_uid: int | None = None,
+    ) -> "Allowlist":
+        """Load the allowlist at ``path``.
+
+        A missing file is not an error - no allowlist configured is the
+        common case, and returns an empty one exactly as before.
+
+        Reads are always bounded and symlink-safe (:func:`read_text_nofollow`):
+        an allowlist directly controls which findings get downgraded to
+        ``info``, so it is never read by following a symlink or without a size
+        cap, regardless of privilege.
+
+        With ``verify_trust=True`` (privileged runs - see ``cli._is_root()``),
+        the file and its whole directory chain are also checked for safe
+        ownership/permissions (the same root-or-``$SUDO_UID`` policy
+        ``_guard_output_dir`` already applies to the output directory) before
+        the file is trusted at all. An *existing* allowlist that fails this
+        check raises :class:`~cableprobe.fsutil.UnsafeDirectoryError` /
+        :class:`~cableprobe.fsutil.UnsafePathError` with an actionable
+        message, rather than silently loading (and trusting) it, or silently
+        proceeding with no allowlist as if none were configured - either would
+        let an attacker who can write there downgrade findings unnoticed.
+        """
+
         if path is None:
             return cls([], None)
         path = Path(path)
-        if not path.is_file():
+
+        try:
+            path.lstat()
+        except OSError:
+            return cls([], path)  # genuinely absent optional file - not an error
+
+        if verify_trust:
+            reasons = verify_directory_chain(path.parent, invoking_uid=invoking_uid)
+            reasons += unsafe_file_reasons(path, invoking_uid=invoking_uid)
+            if reasons:
+                raise UnsafePathError(
+                    f"refusing to trust the allowlist at {path}: {'; '.join(reasons)}. "
+                    "Anyone who can write there can silently downgrade findings. "
+                    "Fix the ownership/permissions of the file and its directory, "
+                    "or remove it and recreate it with `cableprobe allow`."
+                )
+
+        try:
+            text = read_text_nofollow(path, max_bytes=MAX_ALLOWLIST_BYTES)
+        except (OSError, ValueError) as exc:
+            if verify_trust:
+                # trust check above passed, so this is a genuine read failure
+                # (permissions, a non-regular file, a race) - do not silently
+                # proceed as if no allowlist were configured
+                raise UnsafePathError(
+                    f"cannot safely read allowlist at {path}: {exc}"
+                ) from exc
+            log.warning("allowlist at %s could not be read (%s); proceeding without it", path, exc)
             return cls([], path)
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+        try:
+            data = yaml.safe_load(text) or {}
+        except yaml.YAMLError as exc:
+            if verify_trust:
+                raise UnsafePathError(f"malformed allowlist YAML at {path}: {exc}") from exc
+            log.warning("allowlist at %s is not valid YAML (%s); proceeding without it", path, exc)
+            return cls([], path)
+
         entries: list[AllowEntry] = []
-        for row in data.get("allow", []) or []:
+        for row in (data or {}).get("allow", []) or []:
             try:
                 entries.append(
                     AllowEntry(
@@ -191,22 +267,30 @@ class Allowlist:
                 log.warning("skipping malformed allowlist entry: %r", row)
         return cls(entries, path)
 
-    def save(self) -> None:
+    def save(self, *, invoking_uid: int | None = None) -> None:
         if self.path is None:
             raise ValueError("allowlist has no path to save to")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         body = yaml.safe_dump(
             {"allow": [e.as_dict() for e in self.entries]}, sort_keys=False
         )
-        # atomic + symlink-safe: this often lives under an output dir that may be
-        # writable by other users, and `cableprobe allow` can run as root.
-        atomic_write(
-            self.path,
+        text = (
             "# CableProbe allowlist - devices you trust; their findings are\n"
             "# downgraded to info. Prefer entries WITH a serial: an entry with no\n"
-            "# serial trusts any device presenting that vendor:product.\n" + body,
-            mode=0o644,
+            "# serial trusts any device presenting that vendor:product.\n" + body
         )
+        # Anchored + symlink-safe: this often lives under an output dir that
+        # may be writable by other users, and `cableprobe allow` can run as
+        # root. open_verified_dir() validates the whole ancestor chain and
+        # keeps the returned fd anchored to the directory it verified, so a
+        # swap of the directory after that check cannot redirect this write
+        # (see fsutil.atomic_write_at).
+        dir_fd = open_verified_dir(
+            self.path.parent, invoking_uid=invoking_uid, create=True
+        )
+        try:
+            atomic_write_at(dir_fd, self.path.name, text, mode=0o644)
+        finally:
+            os.close(dir_fd)
 
     def match(self, vid: object, pid: object, serial: object) -> AllowEntry | None:
         v, p = _hex_id(vid), _hex_id(pid)

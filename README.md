@@ -74,7 +74,7 @@ Type-C port, and simply skips otherwise.
 | `kernel_modules`  | Loaded kernel modules — catches network / serial / Bluetooth gadget drivers loaded on connect. |
 | `keystroke_cadence` | Key-press *timing* per input device — flags superhuman / robotic typing.       |
 | `process`         | New userspace processes started after the session began (kernel threads excluded). |
-| `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). |
+| `kernel_log`      | Notable kernel / journal lines — enumeration failures and gadget-driver classes (set `kernel_log_verbose` for the full firehose). The journal backend reads incrementally (a saved cursor, not a full re-read since session start on every snapshot) and falls back to a fresh read, flagged, if the journal was rotated or vacuumed mid-session. |
 | `wifi_scan` *(off by default)* | Wi-Fi APs in range. Only useful when you specifically suspect the cable carries a radio **and** can baseline somewhere RF-quiet — on normal premises every session lists a dozen neighbouring APs. Enable it in `probes.enabled`. |
 | `power` *(off by default)* | Inline USB VBUS voltage / current from an **INA219** on the Pi's I²C bus — the one measurement a cable can't lie about (powered electronics draw tens of mA). Samples continuously between phase boundaries, so a brief current spike (a radio burst) is caught, not just a steady draw. Needs the sensor wired up and `pip install 'cableprobe[power]'`. |
 | `connections` *(off by default)* | Outbound TCP connections to routable hosts — a payload or gadget phoning home. Samples continuously between phase boundaries, so a remote host contacted repeatedly across the test phase is distinguished from a single-poll coincidence. Enable only when the test host has **no** internet access, or every apt/NTP call is noise. |
@@ -275,10 +275,15 @@ terminal escape sequences via the report or the console summary.
 
 Report and index writes go through an atomic create-and-rename that never
 follows a symlink, so a predictable path under the output directory cannot
-redirect a write. Still, when running as **root**, point `--output-dir` at a
-root-owned directory (`scripts/install.sh` uses `/var/lib/cableprobe/sessions`)
-and don't run from a world-writable working directory — `cableprobe run` warns,
-and aborts on a symlinked output directory.
+redirect a write. The whole ancestor chain of the output directory (and the
+allowlist's directory, and the allowlist file itself) is validated before any
+privileged write, and every write after that validation is anchored to the
+directory descriptor it opened — not re-resolved by pathname — so replacing
+the directory *after* the check passes cannot redirect the write either. Still,
+when running as **root**, point `--output-dir` at a root-owned directory
+(`scripts/install.sh` uses `/var/lib/cableprobe/sessions`) and don't run from a
+world-writable working directory — `cableprobe run` warns, and aborts on a
+symlinked output directory.
 
 ### Detection rules
 
@@ -327,7 +332,12 @@ cableprobe allow --remove 2
 
 Prefer entries **with a serial** — one without trusts any device presenting that
 vendor:product, including a spoofed one. The allowlist lives at
-`<output_dir>/allowlist.yaml` (override with `allowlist_file:`).
+`<output_dir>/allowlist.yaml` (override with `allowlist_file:`). Reads are
+always bounded and symlink-safe; when running as **root**, the file and its
+whole directory chain are also checked for safe ownership/permissions before
+being trusted at all — an existing allowlist that fails that check is rejected
+with an actionable error rather than silently loaded (or silently ignored),
+since anyone who can write there could otherwise downgrade findings unnoticed.
 
 ## Report structure
 

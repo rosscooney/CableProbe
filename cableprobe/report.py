@@ -6,10 +6,17 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from cableprobe.advice import build_advice
-from cableprobe.fsutil import PRIVATE_FILE_MODE, atomic_write, read_text_nofollow
+from cableprobe.fsutil import (
+    PRIVATE_FILE_MODE,
+    atomic_write_at,
+    open_verified_dir,
+    read_text_nofollow,
+    read_text_nofollow_at,
+)
 from cableprobe.models import Delta, Finding, SessionReport
 
 try:  # rich ships with Typer, but keep rendering optional
@@ -73,14 +80,25 @@ def read_report_index(output_dir: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _write_report_index_entry(output_dir: Path, filename: str, card: dict) -> None:
-    """Best-effort: fold one card into the sidecar index. Never raises."""
+def _write_report_index_entry(dir_fd: int, filename: str, card: dict) -> None:
+    """Best-effort: fold one card into the sidecar index. Never raises.
 
-    index_path = Path(output_dir) / REPORT_INDEX_NAME
-    index = read_report_index(output_dir)
+    Anchored to ``dir_fd`` (see :func:`~cableprobe.fsutil.open_verified_dir`)
+    for both the read and the write, so both target the directory that was
+    actually verified - not whatever the output-dir pathname resolves to by
+    the time this runs.
+    """
+
+    try:
+        data = json.loads(
+            read_text_nofollow_at(dir_fd, REPORT_INDEX_NAME, max_bytes=MAX_INDEX_BYTES)
+        )
+        index = data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        index = {}
     index[filename] = card
     try:
-        atomic_write(index_path, json.dumps(index))
+        atomic_write_at(dir_fd, REPORT_INDEX_NAME, json.dumps(index))
     except OSError:  # pragma: no cover - non-POSIX / unusual filesystems
         pass
 
@@ -119,19 +137,39 @@ _SEVERITY_STYLE = {
 }
 
 
-def write_report(report: SessionReport, output_dir: Path, *, filename: str | None = None) -> Path:
+def write_report(
+    report: SessionReport,
+    output_dir: Path,
+    *,
+    filename: str | None = None,
+    invoking_uid: int | None = None,
+) -> Path:
+    """Write ``report`` (and fold its card into the sidecar index) under
+    ``output_dir``.
+
+    Anchored + symlink-safe (see ``fsutil.open_verified_dir``): the whole
+    ancestor chain of ``output_dir`` is validated once, and every write below
+    is anchored to the resulting file descriptor - a swap of the directory
+    (or a component above it) *after* that validation cannot redirect where
+    the report or the sidecar index land. ``invoking_uid`` is the uid behind
+    ``sudo`` when running privileged (see ``cli._sudo_uid()``); pass it
+    through so a directory owned by the invoking user is still trusted.
+    """
+
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     if filename is None:
         stamp = report.metadata.started_at.strftime("%Y%m%dT%H%M%SZ")
         safe_name = "".join(
             c if c.isalnum() or c in "-_" else "-" for c in report.metadata.session_name
         )
         filename = f"{stamp}-{safe_name}.cableprobe.json"
-    path = output_dir / filename
-    atomic_write(path, report.to_json())
-    _write_report_index_entry(output_dir, filename, report_card(report))
-    return path
+    dir_fd = open_verified_dir(output_dir, invoking_uid=invoking_uid, create=True)
+    try:
+        atomic_write_at(dir_fd, filename, report.to_json(), mode=REPORT_FILE_MODE)
+        _write_report_index_entry(dir_fd, filename, report_card(report))
+    finally:
+        os.close(dir_fd)
+    return output_dir / filename
 
 
 def load_report(path: Path | str) -> SessionReport:
