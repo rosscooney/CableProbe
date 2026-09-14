@@ -15,6 +15,8 @@ Each release is also published to
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-14
+
 ### Fixed
 
 - The `udev-worker` process filter added in 0.4.8 didn't actually fire on real
@@ -792,7 +794,8 @@ Initial release.
 - Packaging: PyPI (`cableprobe`), `scripts/install.sh` for a Raspberry Pi, and a
   pi-gen custom stage for a build-your-own disposable image.
 
-[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.8...HEAD
+[Unreleased]: https://github.com/rosscooney/CableProbe/compare/v0.4.9...HEAD
+[0.4.9]: https://github.com/rosscooney/CableProbe/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/rosscooney/CableProbe/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/rosscooney/CableProbe/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/rosscooney/CableProbe/compare/v0.4.5...v0.4.6
