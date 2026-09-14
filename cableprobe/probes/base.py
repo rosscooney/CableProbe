@@ -14,6 +14,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -89,6 +90,39 @@ class Probe(abc.ABC):
         (its own buffer overflowed). Default: nothing is ever dropped."""
 
         return 0
+
+
+class BackgroundSampler:
+    """A daemon thread that calls ``sample_fn()`` on a fixed interval until
+    stopped.
+
+    For a probe whose ``snapshot()`` is only called at phase boundaries but
+    that needs a finer time series in between (``power``, ``connections``):
+    hold one of these, call :meth:`start` from the probe's ``start()`` and
+    :meth:`stop` from its ``stop()``. This class owns only the thread's
+    lifecycle - ``sample_fn`` is responsible for its own error handling and
+    for locking whatever shared state it updates.
+    """
+
+    def __init__(
+        self, sample_fn: Callable[[], None], interval_seconds: float, *, name: str
+    ) -> None:
+        self._sample_fn = sample_fn
+        self._interval = max(0.001, interval_seconds)
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=name, daemon=True)
+
+    def _run(self) -> None:
+        # wait() returns True once stop() sets the event -> exits promptly
+        while not self._stop_event.wait(self._interval):
+            self._sample_fn()
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self, *, timeout: float = 2.0) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=timeout)
 
 
 # --------------------------------------------------------------------------

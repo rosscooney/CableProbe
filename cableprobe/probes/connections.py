@@ -33,7 +33,7 @@ from cableprobe.models import (
     KIND_OUTBOUND_CONNECTION,
     Observation,
 )
-from cableprobe.probes.base import Probe, ProbeAvailability
+from cableprobe.probes.base import BackgroundSampler, Probe, ProbeAvailability
 from cableprobe.probes.network_state import (
     PROC_NET_TCP,
     PROC_NET_TCP6,
@@ -147,8 +147,7 @@ class ConnectionProbe(Probe):
         self._counts: dict[tuple[str, str], int] = {}
         self._sample_count = 0
         self._remotes_capped = False
-        self._sampler_stop = threading.Event()
-        self._sampler: threading.Thread | None = None
+        self._sampler: BackgroundSampler | None = None
 
     def availability(self) -> ProbeAvailability:
         if Path(PROC_NET_TCP).exists():
@@ -190,10 +189,6 @@ class ConnectionProbe(Probe):
             self._remotes_capped = False
         return counts, total
 
-    def _run_sampler(self) -> None:
-        while not self._sampler_stop.wait(self._sample_interval):
-            self._sample_once()
-
     def _frequency_observations(self) -> list[Observation]:
         counts, total = self._drain_window()
         if not total:
@@ -224,16 +219,14 @@ class ConnectionProbe(Probe):
     # -- lifecycle ----------------------------------------------------------
 
     async def start(self) -> None:
-        self._sampler_stop.clear()
-        self._sampler = threading.Thread(
-            target=self._run_sampler, name="cableprobe-connections-sampler", daemon=True
+        self._sampler = BackgroundSampler(
+            self._sample_once, self._sample_interval, name="cableprobe-connections-sampler"
         )
         self._sampler.start()
 
     async def stop(self) -> None:
-        self._sampler_stop.set()
         if self._sampler is not None:
-            self._sampler.join(timeout=2.0)
+            self._sampler.stop()
             self._sampler = None
 
     def snapshot(self) -> list[Observation]:

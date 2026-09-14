@@ -15,6 +15,14 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- `power` and `connections` each hand-rolled the identical background-sampler-
+  thread boilerplate (a stop event, a daemon thread, `start()`/`stop()`).
+  Extracted into a shared `BackgroundSampler` in `probes/base.py` - one place
+  to review thread lifecycle instead of two, and the obvious home for a third
+  sampler if one's ever needed.
+
 ### Fixed
 
 - The `connections` probe's frequency tracker (`_counts`) had no size cap,

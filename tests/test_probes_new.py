@@ -1272,6 +1272,24 @@ def test_run_command_missing_binary():
     assert code == -1 and "not found" in err
 
 
+def test_background_sampler_calls_sample_fn_until_stopped():
+    import time
+
+    from cableprobe.probes.base import BackgroundSampler
+
+    calls: list[int] = []
+    sampler = BackgroundSampler(lambda: calls.append(1), 0.01, name="test-sampler")
+    sampler.start()
+    time.sleep(0.1)
+    sampler.stop()
+    count_at_stop = len(calls)
+    assert count_at_stop > 0
+
+    # stop() actually joined the thread - no more calls happen afterwards
+    time.sleep(0.05)
+    assert len(calls) == count_at_stop
+
+
 def test_kernel_log_flags_truncated_output_as_incomplete(monkeypatch):
     from cableprobe.probes import kernel_log as kl
     from cableprobe.probes.base import Captured

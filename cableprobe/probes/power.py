@@ -37,7 +37,7 @@ from pathlib import Path
 
 from cableprobe.logging_config import get_logger
 from cableprobe.models import KIND_POWER_READING, KIND_POWER_SERIES, Observation
-from cableprobe.probes.base import Probe, ProbeAvailability
+from cableprobe.probes.base import BackgroundSampler, Probe, ProbeAvailability
 
 try:  # optional dependency
     from smbus2 import SMBus
@@ -105,8 +105,7 @@ class PowerProbe(Probe):
             maxlen=max(1, int(config.probes.power_series_max_samples))
         )
         self._ring_lock = threading.Lock()
-        self._sampler_stop = threading.Event()
-        self._sampler: threading.Thread | None = None
+        self._sampler: BackgroundSampler | None = None
 
     # -- helpers --------------------------------------------------------
 
@@ -131,26 +130,19 @@ class PowerProbe(Probe):
             self._ring.clear()
         return window
 
-    def _run_sampler(self) -> None:
-        # wait() returns True when stop is set -> exits promptly on stop()
-        while not self._sampler_stop.wait(self._sample_interval):
-            self._sample_once()
-
     # -- lifecycle ---------------------------------------------------
 
     async def start(self) -> None:
         if SMBus is None:  # pragma: no cover - availability() already gated this
             return
-        self._sampler_stop.clear()
-        self._sampler = threading.Thread(
-            target=self._run_sampler, name="cableprobe-power-sampler", daemon=True
+        self._sampler = BackgroundSampler(
+            self._sample_once, self._sample_interval, name="cableprobe-power-sampler"
         )
         self._sampler.start()
 
     async def stop(self) -> None:
-        self._sampler_stop.set()
         if self._sampler is not None:
-            self._sampler.join(timeout=2.0)
+            self._sampler.stop()
             self._sampler = None
 
     def availability(self) -> ProbeAvailability:
