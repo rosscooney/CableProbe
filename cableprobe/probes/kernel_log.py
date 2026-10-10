@@ -130,14 +130,13 @@ def filter_kernel_lines(lines: list[str], keywords: list[str]) -> list[Observati
 
 #: journalctl trailer line --show-cursor appends after the last entry shown,
 #: in every -o format: "-- cursor: s=...;i=...;b=...;m=...;t=...;x=...".
-#: Documented, stable systemd/journalctl behaviour (since v233) - verify
-#: against `journalctl --help` / the systemd.journal-fields(7) /
-#: journalctl(1) man pages on the target host if this ever needs re-checking;
-#: there is no journalctl available to test against in this dev environment.
-#: Matched case-insensitively with optional whitespace around "--"/":",
-#: rather than a strict "-- cursor: " prefix - a real session reported "did
-#: not report a cursor" with nothing else to go on, so this is deliberately
-#: lenient about spacing/capitalisation pending a confirmed root cause.
+#: Confirmed on a real host: when the range matches zero entries ("-- No
+#: entries --"), journalctl prints no cursor line at all - there is nothing to
+#: anchor a cursor to. That is the common case this handles, not a parsing
+#: quirk, which is why a missing cursor must not be treated as lost coverage.
+#: Matched case-insensitively with optional whitespace around "--"/":" rather
+#: than a strict "-- cursor: " prefix, in case other journalctl versions vary
+#: the spacing.
 _CURSOR_LINE = re.compile(r"^\s*--\s*cursor:\s*(?P<cursor>.*?)\s*$", re.IGNORECASE)
 
 
