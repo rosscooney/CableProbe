@@ -407,6 +407,15 @@ def run(
 ) -> None:
     """Run a full three-phase cable analysis session."""
 
+    # Several probes need root. Escalate automatically - sudo prompts for the
+    # password on the inherited terminal - rather than just advising and
+    # continuing degraded. Returns (instead of replacing this process) when
+    # that is not possible: already root, no sudo, no TTY to prompt on
+    # (--auto from a script/cron), CABLEPROBE_NO_SUDO_REEXEC is set, or the
+    # launcher/its directory is not trustworthy to run as root - in every one
+    # of those cases _advise_root() below still has the final say.
+    _reexec_with_sudo()
+
     logger = setup_logging(verbose)
     cfg = _load_config(config)
 

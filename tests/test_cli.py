@@ -309,6 +309,39 @@ def test_run_warns_when_not_root_but_continues_in_auto(tmp_path, monkeypatch):
     assert "sudo cableprobe run" in result.output
 
 
+def test_run_attempts_sudo_reexec_when_not_root(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    calls = []
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: False)
+    # a no-op spy: real escalation (os.execvp) is not something a test can
+    # safely trigger, so this only proves run() actually calls it, early
+    monkeypatch.setattr("cableprobe.cli._reexec_with_sudo", lambda: calls.append(True))
+
+    result = runner.invoke(app, [*_run_args(tmp_path), "--auto"])
+    assert calls == [True]  # attempted before anything else ran
+    assert result.exit_code == 0, result.output  # falls through normally when it is a no-op
+
+
+def test_run_does_not_attempt_sudo_reexec_when_already_root(tmp_path, monkeypatch):
+    async def fake_run_session(*a, **k):
+        return _fake_report()
+
+    def _boom(*a, **k):
+        raise AssertionError("already root - must not try to exec sudo")
+
+    # _reexec_with_sudo() itself is the real, unmocked function here: it must
+    # see _is_root() -> True and return on its own, never reaching os.execvp
+    monkeypatch.setattr("cableprobe.cli.run_session", fake_run_session)
+    monkeypatch.setattr("cableprobe.cli._is_root", lambda: True)
+    monkeypatch.setattr("cableprobe.cli.os.execvp", _boom)
+
+    result = runner.invoke(app, [*_run_args(tmp_path), "--auto"])
+    assert result.exit_code == 0, result.output
+
+
 def test_run_as_root_aborts_on_symlinked_output_dir(tmp_path, monkeypatch):
     async def fake_run_session(*a, **k):
         return _fake_report()

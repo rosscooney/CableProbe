@@ -15,6 +15,18 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Changed
+
+- `cableprobe run` now escalates to `sudo` automatically when not already
+  root, instead of just advising and continuing degraded - `sudo` prompts for
+  the password on the inherited terminal, same as typing it yourself. Falls
+  through to the existing advise-and-ask behaviour when escalation is not
+  possible: already root, no `sudo` on `PATH`, no TTY to prompt on (`--auto`
+  from a script/cron), `CABLEPROBE_NO_SUDO_REEXEC` is set, or the launcher (or
+  its directory) is not safely owned - the same trust check `cableprobe link`
+  already used. Uses the existing `_reexec_with_sudo()` machinery, previously
+  wired only into `link`.
+
 ## [0.4.10] - 2026-09-14
 
 ### Security
