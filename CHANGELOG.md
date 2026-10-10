@@ -27,6 +27,21 @@ Each release is also published to
   already used. Uses the existing `_reexec_with_sudo()` machinery, previously
   wired only into `link`.
 
+### Fixed
+
+- The kernel log probe no longer reports partial coverage just because
+  `journalctl --show-cursor` omitted its cursor trailer on a successful read.
+  A missing cursor only costs the incremental-read optimisation for the next
+  poll - the probe falls back to a fresh `--since` read, which always
+  re-covers the whole session from the start, so no data is actually lost.
+  This is now only logged (`log.warning`), not surfaced as
+  `monitoring_incomplete`. The genuine data-loss case - the journal being
+  rotated or vacuumed so `--after-cursor` itself fails - is unaffected and
+  still flags partial coverage. Cursor-trailer detection is also now a
+  lenient, case-insensitive regex instead of a strict `"-- cursor: "` prefix
+  match, to tolerate journalctl output that doesn't match the exact spacing
+  this was written against.
+
 ## [0.4.10] - 2026-09-14
 
 ### Security

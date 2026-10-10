@@ -1450,7 +1450,11 @@ def test_kernel_log_journalctl_command_failure_raises(monkeypatch):
         probe.snapshot()
 
 
-def test_kernel_log_journalctl_missing_cursor_is_flagged(monkeypatch):
+def test_kernel_log_journalctl_missing_cursor_is_logged_not_flagged(monkeypatch, caplog):
+    """A missing cursor trailer only costs the incremental-read optimisation -
+    the next read falls back to --since, which always re-covers the whole
+    session, so no data is lost and this must not be reported as partial
+    coverage. It should still be logged so the cause can be investigated."""
     from cableprobe.probes import kernel_log as kl
 
     probe = kl.KernelLogProbe(_CFG, 0.0)
@@ -1461,12 +1465,12 @@ def test_kernel_log_journalctl_missing_cursor_is_flagged(monkeypatch):
         lambda *a, **k: (0, "2026-01-01T00:00:00+0000 host kernel: rndis0: up\n", ""),
     )
 
-    obs = probe.snapshot()
+    with caplog.at_level("WARNING"):
+        obs = probe.snapshot()
+
     assert probe._cursor is None
-    assert any(
-        o.identity == "kernel-log:incomplete" and "did not report a cursor" in o.attributes["reason"]
-        for o in obs
-    )
+    assert not any(o.identity == "kernel-log:incomplete" for o in obs)
+    assert any("did not report a cursor" in record.message for record in caplog.records)
 
 
 def test_kernel_log_dmesg_fallback_still_works(monkeypatch):

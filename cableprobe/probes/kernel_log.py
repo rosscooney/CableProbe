@@ -134,7 +134,11 @@ def filter_kernel_lines(lines: list[str], keywords: list[str]) -> list[Observati
 #: against `journalctl --help` / the systemd.journal-fields(7) /
 #: journalctl(1) man pages on the target host if this ever needs re-checking;
 #: there is no journalctl available to test against in this dev environment.
-_CURSOR_PREFIX = "-- cursor: "
+#: Matched case-insensitively with optional whitespace around "--"/":",
+#: rather than a strict "-- cursor: " prefix - a real session reported "did
+#: not report a cursor" with nothing else to go on, so this is deliberately
+#: lenient about spacing/capitalisation pending a confirmed root cause.
+_CURSOR_LINE = re.compile(r"^\s*--\s*cursor:\s*(?P<cursor>.*?)\s*$", re.IGNORECASE)
 
 
 class KernelLogProbe(Probe):
@@ -200,8 +204,9 @@ class KernelLogProbe(Probe):
         content: list[str] = []
         cursor: str | None = None
         for line in out.splitlines():
-            if line.startswith(_CURSOR_PREFIX):
-                cursor = line[len(_CURSOR_PREFIX) :].strip() or None
+            match = _CURSOR_LINE.match(line)
+            if match:
+                cursor = match.group("cursor") or None
             else:
                 content.append(line)
         return content, cursor
@@ -248,9 +253,12 @@ class KernelLogProbe(Probe):
         if cursor is not None:
             self._cursor = cursor
         else:
-            # --show-cursor should always emit one on success; its absence
-            # means the next read cannot safely resume incrementally
-            extra.append(self._incomplete_marker("journalctl did not report a cursor"))
+            # The trailer is missing or in a format we didn't recognise - we
+            # just fall back to a --since read next time, which re-covers the
+            # whole session from the start. No data is lost, so this is only
+            # a lost optimisation, not a coverage gap worth flagging in the
+            # report; log it so the cause can still be investigated.
+            log.warning("journalctl did not report a cursor; next read will use --since instead")
 
         obs = filter_kernel_lines(content, self._keywords())
         if getattr(out, "truncated", False) or len(content) >= _MAX_KERNEL_LINES:
