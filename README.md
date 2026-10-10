@@ -136,12 +136,17 @@ work, but the live probes are unavailable.
 ```bash
 cableprobe upgrade            # checks PyPI directly, then upgrades this install
 cableprobe upgrade --check    # just report whether a newer version exists
+cableprobe update              # the same thing, quietly - for cron/scripts
 ```
 
 `cableprobe upgrade` queries PyPI itself (so it is not fooled by a stale pip
 index cache the way `pipx upgrade` sometimes is), works out how this copy was
 installed — pipx, `pip`, `scripts/install.sh`, a source checkout — and runs the
-right upgrade with the cache bypassed. Then:
+right upgrade with the cache bypassed. `cableprobe update` runs the identical
+check and upgrade but stays silent on the happy path (nothing to do, or the
+upgrade succeeded) — only PyPI being unreachable or the upgrade command
+failing produce output, which makes it suited to an unattended cron job or
+wrapper script. Then:
 
 ```bash
 cableprobe --version

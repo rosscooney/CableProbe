@@ -593,8 +593,10 @@ def test_upgrade_runs_the_command(monkeypatch):
 
     class R:
         returncode = 0
+        stdout = ""
+        stderr = ""
 
-    def fake_run(cmd, check=False):
+    def fake_run(cmd, check=False, capture_output=False, text=False):
         calls["cmd"] = cmd
         return R()
 
@@ -603,6 +605,67 @@ def test_upgrade_runs_the_command(monkeypatch):
     assert result.exit_code == 0
     assert calls["cmd"] == ["true"]
     assert "upgraded" in result.output
+
+
+def test_update_is_quiet_on_the_happy_path(monkeypatch):
+    calls = {}
+    monkeypatch.setattr("cableprobe.cli.__version__", "0.3.9")
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "0.3.10")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    monkeypatch.setattr("cableprobe.cli._upgrade_command", lambda: ["true"])
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, check=False, capture_output=False, text=False):
+        calls["cmd"] = cmd
+        return R()
+
+    monkeypatch.setattr("cableprobe.cli.subprocess.run", fake_run)
+    result = runner.invoke(app, ["update"])
+    assert result.exit_code == 0
+    assert calls["cmd"] == ["true"]
+    assert result.output == ""
+
+
+def test_update_up_to_date_is_silent(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli.__version__", "9.9.9")
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "9.9.9")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    result = runner.invoke(app, ["update"])
+    assert result.exit_code == 0
+    assert result.output == ""
+
+
+def test_update_still_reports_failure(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli.__version__", "0.3.9")
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: "0.3.10")
+    monkeypatch.setattr("cableprobe.cli._is_editable_install", lambda: False)
+    monkeypatch.setattr("cableprobe.cli._upgrade_command", lambda: ["true"])
+
+    class R:
+        returncode = 1
+        stdout = "some pip output\n"
+        stderr = "some pip error\n"
+
+    monkeypatch.setattr(
+        "cableprobe.cli.subprocess.run",
+        lambda cmd, check=False, capture_output=False, text=False: R(),
+    )
+    result = runner.invoke(app, ["update"])
+    assert result.exit_code == 1
+    assert "some pip output" in result.output
+    assert "some pip error" in result.output
+    assert "upgrade command failed" in result.output
+
+
+def test_update_pypi_unreachable_still_reports(monkeypatch):
+    monkeypatch.setattr("cableprobe.cli._pypi_latest_version", lambda **k: None)
+    result = runner.invoke(app, ["update", "--check"])
+    assert result.exit_code == 1
+    assert "could not reach PyPI" in result.output
 
 
 def test_upgrade_pypi_unreachable(monkeypatch):

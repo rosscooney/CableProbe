@@ -788,63 +788,98 @@ def _upgrade_command() -> list[str] | None:
     ]
 
 
-@app.command()
-def upgrade(
-    check: bool = typer.Option(
-        False, "--check", help="Only report whether an update is available; do not install."
-    ),
-) -> None:
-    """Check PyPI for a newer cableprobe and (unless --check) install it.
+def _run_upgrade(check: bool, quiet: bool) -> int:
+    """Shared implementation behind ``upgrade`` and ``update``.
 
     Queries PyPI directly, so it is not fooled by a stale pip index cache the
-    way ``pipx upgrade`` can be.
+    way ``pipx upgrade`` can be. In ``quiet`` mode, informational chatter on
+    the happy path (nothing to do, or the upgrade succeeded) is suppressed -
+    only PyPI-unreachable / upgrade-command-failed errors, and the
+    subprocess's own output on failure, are still printed.
     """
 
-    typer.echo(f"installed: {__version__}")
+    def echo(msg: str = "") -> None:
+        if not quiet:
+            typer.echo(msg)
+
+    def secho(msg: str, **kw: object) -> None:
+        if not quiet:
+            typer.secho(msg, **kw)
+
+    echo(f"installed: {__version__}")
     latest = _pypi_latest_version()
     if latest is None:
         typer.secho("could not reach PyPI to check for updates.", fg="red", err=True)
-        raise typer.Exit(code=1)
-    typer.echo(f"latest on PyPI: {latest}")
+        return 1
+    echo(f"latest on PyPI: {latest}")
 
     if __version__.endswith("+dev") or _is_editable_install():
-        typer.secho(
+        secho(
             "this is a source / editable checkout - `git pull` to update.",
             fg="bright_black",
         )
-        raise typer.Exit(code=0)
+        return 0
 
     if _version_key(latest) <= _version_key(__version__):
-        typer.secho("cableprobe is up to date.", fg="green")
-        raise typer.Exit(code=0)
+        secho("cableprobe is up to date.", fg="green")
+        return 0
 
-    typer.secho(f"\ncableprobe {latest} is available.", fg="yellow", bold=True)
+    secho(f"\ncableprobe {latest} is available.", fg="yellow", bold=True)
     cmd = _upgrade_command()
     if cmd and cmd[0] == "sudo":
-        typer.secho(
+        secho(
             f"(this is a pipx install owned by {cmd[2]}; upgrading as that user)",
             fg="bright_black",
         )
     if check or cmd is None:
         if cmd is None:
-            typer.echo(
+            echo(
                 "this install is managed elsewhere (scripts/install.sh, a distro"
                 " package, ...) - upgrade it the same way you installed it."
             )
         else:
-            typer.echo(f"to upgrade:  {shlex.join(cmd)}")
-        raise typer.Exit(code=10)
+            echo(f"to upgrade:  {shlex.join(cmd)}")
+        return 10
 
-    typer.secho(f"running: {shlex.join(cmd)}\n", fg="bright_black")
+    secho(f"running: {shlex.join(cmd)}\n", fg="bright_black")
     try:
-        result = subprocess.run(cmd, check=False)  # noqa: S603 - argv list, no shell
+        # Quiet mode captures the underlying pip/pipx chatter too, and only
+        # surfaces it if the command actually fails.
+        result = subprocess.run(  # noqa: S603 - argv list, no shell
+            cmd, check=False, capture_output=quiet, text=quiet
+        )
     except FileNotFoundError:
         typer.secho(f"error: {cmd[0]} not found on PATH.", fg="red", err=True)
-        raise typer.Exit(code=1) from None
+        return 1
     if result.returncode != 0:
+        if quiet:
+            if result.stdout:
+                typer.echo(result.stdout, err=True)
+            if result.stderr:
+                typer.echo(result.stderr, err=True)
         typer.secho("upgrade command failed - see its output above.", fg="red", err=True)
-        raise typer.Exit(code=result.returncode)
-    typer.secho(f"\nupgraded. run `cableprobe --version` to confirm.", fg="green")
+        return result.returncode
+    secho("\nupgraded. run `cableprobe --version` to confirm.", fg="green")
+    return 0
+
+
+_UPGRADE_CHECK_OPTION = typer.Option(
+    False, "--check", help="Only report whether an update is available; do not install."
+)
+
+
+@app.command()
+def upgrade(check: bool = _UPGRADE_CHECK_OPTION) -> None:
+    """Check PyPI for a newer cableprobe and (unless --check) install it."""
+
+    raise typer.Exit(code=_run_upgrade(check=check, quiet=False))
+
+
+@app.command()
+def update(check: bool = _UPGRADE_CHECK_OPTION) -> None:
+    """Same as `upgrade`, but quiet - only prints on error or when something needs your input."""
+
+    raise typer.Exit(code=_run_upgrade(check=check, quiet=True))
 
 
 @app.command()

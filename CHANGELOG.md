@@ -15,6 +15,15 @@ Each release is also published to
 
 ## [Unreleased]
 
+### Added
+
+- `cableprobe update`: runs the exact same check-and-upgrade as
+  `cableprobe upgrade`, but quietly - on the happy path (already up to date,
+  or the upgrade succeeded) it prints nothing. PyPI being unreachable or the
+  upgrade command failing still produce output (including the underlying
+  pip/pipx output on failure), so it's suited to an unattended cron job or
+  wrapper script.
+
 ## [0.4.11] - 2026-10-10
 
 ### Changed
