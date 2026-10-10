@@ -17,12 +17,19 @@ Each release is also published to
 
 ### Added
 
-- `cableprobe update`: runs the exact same check-and-upgrade as
-  `cableprobe upgrade`, but quietly - on the happy path (already up to date,
-  or the upgrade succeeded) it prints nothing. PyPI being unreachable or the
-  upgrade command failing still produce output (including the underlying
-  pip/pipx output on failure), so it's suited to an unattended cron job or
-  wrapper script.
+- `cableprobe update`: a hidden exact alias for `cableprobe upgrade`, for
+  anyone who reaches for "update" instead - same behaviour, just left out of
+  `--help` since `upgrade` is the documented name.
+
+### Fixed
+
+- `cableprobe upgrade` no longer reports success just because the upgrade
+  command exited `0` - `pipx upgrade` / `pip install --upgrade` both do that
+  even when they find nothing newer than what's installed (PyPI's package
+  index, used to resolve the actual download, can lag a minute or two behind
+  the JSON API this command checks directly). It now re-reads the installed
+  version from package metadata afterwards and only reports success if it
+  actually changed.
 
 ## [0.4.11] - 2026-10-10
 

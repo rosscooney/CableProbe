@@ -726,6 +726,22 @@ def _is_editable_install() -> bool:
     return False
 
 
+def _installed_version() -> str | None:
+    """The version on disk right now, read fresh from package metadata.
+
+    Used after running an upgrade command to confirm it actually changed
+    anything - `pipx upgrade` / `pip install --upgrade` both exit ``0`` when
+    they find nothing newer to install, which is not the same as success.
+    """
+
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("cableprobe")
+    except (ImportError, PackageNotFoundError):
+        return None
+
+
 #: Conservative POSIX login-name shape; also bounds what we hand to ``sudo -u``.
 _USERNAME_RE = re.compile(r"\A[a-z_][a-z0-9_-]{0,31}\Z")
 
@@ -788,98 +804,88 @@ def _upgrade_command() -> list[str] | None:
     ]
 
 
-def _run_upgrade(check: bool, quiet: bool) -> int:
-    """Shared implementation behind ``upgrade`` and ``update``.
+@app.command()
+def upgrade(
+    check: bool = typer.Option(
+        False, "--check", help="Only report whether an update is available; do not install."
+    ),
+) -> None:
+    """Check PyPI for a newer cableprobe and (unless --check) install it.
 
-    Queries PyPI directly, so it is not fooled by a stale pip index cache the
-    way ``pipx upgrade`` can be. In ``quiet`` mode, informational chatter on
-    the happy path (nothing to do, or the upgrade succeeded) is suppressed -
-    only PyPI-unreachable / upgrade-command-failed errors, and the
-    subprocess's own output on failure, are still printed.
+    Queries PyPI directly rather than trusting a local pip index cache, and
+    for a pipx install runs the upgrade with `--pip-args=--no-cache-dir` so a
+    release that just published can't be masked by a stale cached wheel.
     """
 
-    def echo(msg: str = "") -> None:
-        if not quiet:
-            typer.echo(msg)
-
-    def secho(msg: str, **kw: object) -> None:
-        if not quiet:
-            typer.secho(msg, **kw)
-
-    echo(f"installed: {__version__}")
+    typer.echo(f"installed: {__version__}")
     latest = _pypi_latest_version()
     if latest is None:
         typer.secho("could not reach PyPI to check for updates.", fg="red", err=True)
-        return 1
-    echo(f"latest on PyPI: {latest}")
+        raise typer.Exit(code=1)
+    typer.echo(f"latest on PyPI: {latest}")
 
     if __version__.endswith("+dev") or _is_editable_install():
-        secho(
+        typer.secho(
             "this is a source / editable checkout - `git pull` to update.",
             fg="bright_black",
         )
-        return 0
+        raise typer.Exit(code=0)
 
     if _version_key(latest) <= _version_key(__version__):
-        secho("cableprobe is up to date.", fg="green")
-        return 0
+        typer.secho("cableprobe is up to date.", fg="green")
+        raise typer.Exit(code=0)
 
-    secho(f"\ncableprobe {latest} is available.", fg="yellow", bold=True)
+    typer.secho(f"\ncableprobe {latest} is available.", fg="yellow", bold=True)
     cmd = _upgrade_command()
     if cmd and cmd[0] == "sudo":
-        secho(
+        typer.secho(
             f"(this is a pipx install owned by {cmd[2]}; upgrading as that user)",
             fg="bright_black",
         )
     if check or cmd is None:
         if cmd is None:
-            echo(
+            typer.echo(
                 "this install is managed elsewhere (scripts/install.sh, a distro"
                 " package, ...) - upgrade it the same way you installed it."
             )
         else:
-            echo(f"to upgrade:  {shlex.join(cmd)}")
-        return 10
+            typer.echo(f"to upgrade:  {shlex.join(cmd)}")
+        raise typer.Exit(code=10)
 
-    secho(f"running: {shlex.join(cmd)}\n", fg="bright_black")
+    typer.secho(f"running: {shlex.join(cmd)}\n", fg="bright_black")
     try:
-        # Quiet mode captures the underlying pip/pipx chatter too, and only
-        # surfaces it if the command actually fails.
-        result = subprocess.run(  # noqa: S603 - argv list, no shell
-            cmd, check=False, capture_output=quiet, text=quiet
-        )
+        result = subprocess.run(cmd, check=False)  # noqa: S603 - argv list, no shell
     except FileNotFoundError:
         typer.secho(f"error: {cmd[0]} not found on PATH.", fg="red", err=True)
-        return 1
+        raise typer.Exit(code=1) from None
     if result.returncode != 0:
-        if quiet:
-            if result.stdout:
-                typer.echo(result.stdout, err=True)
-            if result.stderr:
-                typer.echo(result.stderr, err=True)
         typer.secho("upgrade command failed - see its output above.", fg="red", err=True)
-        return result.returncode
-    secho("\nupgraded. run `cableprobe --version` to confirm.", fg="green")
-    return 0
+        raise typer.Exit(code=result.returncode)
+
+    # A `0` exit code alone doesn't mean the version actually changed - both
+    # `pipx upgrade` and `pip install --upgrade` exit 0 when they find nothing
+    # newer than what's installed (e.g. PyPI's package index, used to resolve
+    # the actual download, can lag a minute or two behind the JSON API this
+    # command checked against above, right after a release). Re-check what's
+    # actually on disk before claiming success.
+    now_installed = _installed_version()
+    if now_installed and _version_key(now_installed) > _version_key(__version__):
+        typer.secho(f"\nupgraded to {now_installed}.", fg="green")
+        return
+    typer.secho(
+        f"\nthe upgrade command ran successfully, but the installed version is "
+        f"still {now_installed or __version__} - not {latest}. PyPI's package "
+        "index can lag a minute or two behind the check above right after a "
+        "release; wait a bit and run `cableprobe upgrade` again.",
+        fg="yellow",
+    )
+    raise typer.Exit(code=10)
 
 
-_UPGRADE_CHECK_OPTION = typer.Option(
-    False, "--check", help="Only report whether an update is available; do not install."
-)
-
-
-@app.command()
-def upgrade(check: bool = _UPGRADE_CHECK_OPTION) -> None:
-    """Check PyPI for a newer cableprobe and (unless --check) install it."""
-
-    raise typer.Exit(code=_run_upgrade(check=check, quiet=False))
-
-
-@app.command()
-def update(check: bool = _UPGRADE_CHECK_OPTION) -> None:
-    """Same as `upgrade`, but quiet - only prints on error or when something needs your input."""
-
-    raise typer.Exit(code=_run_upgrade(check=check, quiet=True))
+#: `cableprobe update` is an exact alias for `cableprobe upgrade` - hidden from
+#: --help (upgrade is the documented name) but still works exactly the same,
+#: for anyone who reaches for "update" instead.
+app.command(name="update", hidden=True)(upgrade)
 
 
 @app.command()
